@@ -19,3 +19,28 @@ Projeto para a disciplina de Algoritmos e Estruturas de Dados II, com foco na or
 ├── go.mod                # Gerenciador de módulos Go
 └── README.md             # Especificação e documentação da arquitetura
 ```
+
+## Como Executar
+
+### Pré-requisitos
+- [Go](https://go.dev/) instalado (versão 1.20 ou superior).
+
+### Execução direta
+Na raiz do projeto, execute:
+
+```bash
+go run .
+```
+
+### Compilação do binário
+Para gerar o executável:
+
+```bash
+# Windows
+go build -o app.exe
+./app.exe
+
+# Linux / macOS
+go build -o app
+./app
+```
