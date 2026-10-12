@@ -1,3 +1,3 @@
-module trabalho-aed2
+module arquivo-sequencial-indexado
 
 go 1.27.2
