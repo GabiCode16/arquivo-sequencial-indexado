@@ -4,7 +4,7 @@ Projeto desenvolvido para a disciplina de **Algoritmos e Estruturas de Dados II*
 
 ---
 
-## 📁 Estrutura do Projeto
+## Estrutura do Projeto
 
 ```text
 ├── main.go               # Ponto de entrada, menu interativo e chamadas principais
@@ -25,14 +25,14 @@ Projeto desenvolvido para a disciplina de **Algoritmos e Estruturas de Dados II*
 
 ---
 
-## 🎯 Contexto do Trabalho e Dataset
+## Contexto do Trabalho e Dataset
 
 - **Fonte dos Dados:** [eCommerce behavior data from multi-category store (Kaggle)](https://www.kaggle.com/datasets/mkechinov/ecommerce-behavior-data-from-multi-category-store)
 - **Domínio:** Comportamento e eventos de usuários em loja virtual de departamentos (visualização, carrinho, compra, produtos, categorias e preços).
 
 ---
 
-## 📊 Arquivos de Dados e Estruturas
+## Arquivos de Dados e Estruturas
 
 ### 1. `produtos.dat` (Arquivo de Produtos)
 - **Organização:** Sequencial ordenado pelo campo chave.
@@ -57,7 +57,7 @@ Projeto desenvolvido para a disciplina de **Algoritmos e Estruturas de Dados II*
 
 ---
 
-## 🗂️ Índices Parciais
+## Índices Parciais
 
 - **`indice_prod.idx`**: Índice parcial ordenado mapeando blocos de registros do arquivo `produtos.dat`.
 - **`indice_acess.idx`**: Índice parcial ordenado mapeando blocos de registros do arquivo `acessos.dat`.
@@ -68,7 +68,7 @@ Projeto desenvolvido para a disciplina de **Algoritmos e Estruturas de Dados II*
 
 ---
 
-## ❓ Perguntas Analíticas (Consultas)
+## Perguntas Analíticas (Consultas)
 
 1. **Pergunta 1:** Qual a marca com maior volume de produtos cadastrados e sua média de preço?
    - *Hipótese:* Marcas consolidadas concentram a maior fatia do catálogo com faixas de preço diversificadas.
@@ -78,7 +78,7 @@ Projeto desenvolvido para a disciplina de **Algoritmos e Estruturas de Dados II*
 
 ---
 
-## 🚀 Como Executar
+## Como Executar
 
 ```bash
 # Executar o programa
