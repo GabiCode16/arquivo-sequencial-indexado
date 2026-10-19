@@ -1,0 +1,2 @@
+# Dependências para scripts de processamento e preparação de dados
+pandas>=2.0.0

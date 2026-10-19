@@ -1,0 +1,16 @@
+# Ambientes Virtuais Python
+venv/
+.venv/
+env/
+
+# Caches e arquivos temporários Python
+__pycache__/
+*.py[cod]
+
+# Binários Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+app
