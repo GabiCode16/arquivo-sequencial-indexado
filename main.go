@@ -10,11 +10,6 @@ import (
 	"strings"
 )
 
-const (
-	produtosPath = "dados/produtos.dat"
-	indiceProdutosPath = "dados/indice_prod.idx"
-)
-
 func main() {
 	entrada := bufio.NewScanner(os.Stdin)
 
@@ -79,15 +74,15 @@ func consultarProduto(entrada *bufio.Scanner) {
 }
 
 func buscarProduto(productID int64) (core.ProdutoRecord, bool, error) {
-	arquivoProdutos, err := core.AbrirArquivo(produtosPath)
+	arquivoProdutos, err := core.AbrirArquivo(core.CaminhoProdutos)
 	if err != nil {
-		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", produtosPath, err)
+		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.CaminhoProdutos, err)
 	}
 	defer arquivoProdutos.Close()
 
-	arquivoIndice, err := core.AbrirArquivo(indiceProdutosPath)
+	arquivoIndice, err := core.AbrirArquivo(core.CaminhoIndiceProdutos)
 	if err != nil {
-		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", indiceProdutosPath, err)
+		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.CaminhoIndiceProdutos, err)
 	}
 	defer arquivoIndice.Close()
 
