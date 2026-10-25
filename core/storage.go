@@ -23,9 +23,23 @@ func LerLinhaProduto(r io.Reader) (ProdutoRecord, error) {
 	return p, err
 }
 
+// LerLinhaProdutoIdx lê o próximo registro de tamanho fixo (16 bytes) de indice_prod.idx.
+func LerLinhaProdutoIdx(r io.Reader) (ProdutoIdx, error) {
+	var p ProdutoIdx
+	err := binary.Read(r, binary.LittleEndian, &p)
+	return p, err
+}
+
 // LerLinhaAcesso lê o próximo registro de tamanho fixo (61 bytes) de acessos.dat.
 func LerLinhaAcesso(r io.Reader) (AcessoRecord, error) {
 	var a AcessoRecord
+	err := binary.Read(r, binary.LittleEndian, &a)
+	return a, err
+}
+
+// LerLinhaAcessoIdx lê o próximo registro de tamanho fixo (16 bytes) de indice_acess.idx.
+func LerLinhaAcessoIdx(r io.Reader) (AcessoIdx, error) {
+	var a AcessoIdx
 	err := binary.Read(r, binary.LittleEndian, &a)
 	return a, err
 }

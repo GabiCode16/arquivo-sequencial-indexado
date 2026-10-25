@@ -145,6 +145,128 @@ func validateAccessFile() (bool, string) {
 	return false, "Erro ao ler o arquivo de acessos"
 }
 
+func validateProductIndexFile() (bool, string) {
+	file, e := core.AbrirArquivo("dados/indice_prod.idx")
+
+	if e != nil {
+		return false, "Erro ao abrir o arquivo de índices de produtos"
+	}
+
+	defer file.Close()
+
+	tamanhoTotal := core.ObterTamanhoArquivo(file)
+
+	if tamanhoTotal < 0 || tamanhoTotal%16 != 0 {
+		return false, "Tamanho do arquivo de índices de produtos inválido"
+	}
+
+	qtdIndices := tamanhoTotal / 16
+	lidos := 0
+
+	productIdx, e := core.LerLinhaProdutoIdx(file)
+
+	if e != nil {
+		return false, "Erro ao ler o primeiro registro de índices de produtos"
+	}
+
+	id := productIdx.ProductID
+	lidos++
+
+	for {
+		productIdx, e = core.LerLinhaProdutoIdx(file)
+		newId := productIdx.ProductID
+
+		if e != nil {
+			break
+		}
+
+		if newId <= id {
+			return false, "IDs de produtos não estão em ordem crescente"
+		} else {
+			id = newId
+		}
+
+		lidos++
+
+		if lidos%10 == 0 {
+			fmt.Printf("Validando índices de produtos: %d/%d\n", lidos, qtdIndices)
+		}
+	}
+
+	if int64(lidos) != qtdIndices {
+		return false, "Quantidade de registros de índices de produtos lidos " +
+			"não corresponde ao tamanho do arquivo"
+	}
+
+	if e == io.EOF {
+		fmt.Printf("Validando índices de produtos: %d/%d\n", lidos, qtdIndices)
+		return true, "Sucesso: Arquivo de índices de produtos válido"
+	}
+
+	return false, "Erro ao ler o arquivo de índices de produtos"
+}
+
+func validateAccessIndexFile() (bool, string) {
+	file, e := core.AbrirArquivo("dados/indice_acess.idx")
+
+	if e != nil {
+		return false, "Erro ao abrir o arquivo de índices de acessos"
+	}
+
+	defer file.Close()
+
+	tamanhoTotal := core.ObterTamanhoArquivo(file)
+
+	if tamanhoTotal < 0 || tamanhoTotal%16 != 0 {
+		return false, "Tamanho do arquivo de índices de acessos inválido"
+	}
+
+	qtdIndices := tamanhoTotal / 16
+	lidos := 0
+
+	accessIdx, e := core.LerLinhaAcessoIdx(file)
+
+	if e != nil {
+		return false, "Erro ao ler o primeiro registro de índices de acessos"
+	}
+
+	id := accessIdx.EventID
+	lidos++
+
+	for {
+		accessIdx, e = core.LerLinhaAcessoIdx(file)
+		newId := accessIdx.EventID
+
+		if e != nil {
+			break
+		}
+
+		if newId <= id {
+			return false, "IDs de acessos não estão em ordem crescente"
+		} else {
+			id = newId
+		}
+
+		lidos++
+
+		if lidos%10000 == 0 {
+			fmt.Printf("Validando índices de acessos: %d/%d\n", lidos, qtdIndices)
+		}
+	}
+
+	if int64(lidos) != qtdIndices {
+		return false, "Quantidade de registros de índices de acessos lidos " +
+			"não corresponde ao tamanho do arquivo"
+	}
+
+	if e == io.EOF {
+		fmt.Printf("Validando índices de acessos: %d/%d\n", lidos, qtdIndices)
+		return true, "Sucesso: Arquivo de índices de acessos válido"
+	}
+
+	return false, "Erro ao ler o arquivo de índices de acessos"
+}
+
 func main() {
 	fmt.Println("=== Validador de Integridade de Arquivos (.dat) ===")
 	// Ponto de entrada do script validador em Go
@@ -163,5 +285,21 @@ func main() {
 		fmt.Println("Arquivo de acessos: Integro")
 	} else {
 		fmt.Printf("Arquivo de acessos: Corrompido\n%s\n", accessMsg)
+	}
+
+	productIdxValid, productIdxMsg := validateProductIndexFile()
+
+	if productIdxValid {
+		fmt.Println("Arquivo de índices de produtos: Integro")
+	} else {
+		fmt.Printf("Arquivo de índices de produtos: Corrompido\n%s\n", productIdxMsg)
+	}
+
+	accessIdxValid, accessIdxMsg := validateAccessIndexFile()
+
+	if accessIdxValid {
+		fmt.Println("Arquivo de índices de acessos: Integro")
+	} else {
+		fmt.Printf("Arquivo de índices de acessos: Corrompido\n%s\n", accessIdxMsg)
 	}
 }
