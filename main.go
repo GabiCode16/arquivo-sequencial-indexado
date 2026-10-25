@@ -15,8 +15,8 @@ func main() {
 
 	for {
 		fmt.Println("\n=== Arquivo Sequencial-Indexado ===")
-		fmt.Println("1 - Consultar produto por ID")
-		fmt.Println("0 - Sair")
+		fmt.Printf("%s - Consultar produto por ID\n", core.OptProd)
+		fmt.Printf("%s - Sair\n", core.OptExit)
 		fmt.Print("Opção: ")
 
 		if !entrada.Scan() {
@@ -27,12 +27,12 @@ func main() {
 		}
 
 		switch strings.TrimSpace(entrada.Text()) {
-		case "1":
+		case core.OptProd:
 			consultarProduto(entrada)
-		case "0":
+		case core.OptExit:
 			return
 		default:
-			fmt.Println("Opção inválida. Escolha 1 ou 0.")
+			fmt.Printf("Opção inválida. Escolha %s ou %s.\n", core.OptProd, core.OptExit)
 		}
 	}
 }
@@ -46,9 +46,9 @@ func consultarProduto(entrada *bufio.Scanner) {
 		return
 	}
 
-	productID, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), 10, 64)
+	productID, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), core.IDBase, core.IDBits)
 	if err != nil {
-		fmt.Println("ID inválido. Informe um número inteiro de 64 bits.")
+		fmt.Printf("ID inválido. Informe um número inteiro de %d bits.\n", core.IDBits)
 		return
 	}
 
@@ -67,22 +67,22 @@ func consultarProduto(entrada *bufio.Scanner) {
 
 	fmt.Printf("\nProduto encontrado\nID: %d\nMarca: %s\nCategoria: %s\nPreço: %.2f\n",
 		produto.ProductID,
-		strings.Trim(string(produto.Brand[:]), " \x00"),
-		strings.Trim(string(produto.CategoryCode[:]), " \x00"),
+		strings.Trim(string(produto.Brand[:]), core.TextPad),
+		strings.Trim(string(produto.CategoryCode[:]), core.TextPad),
 		produto.Price,
 	)
 }
 
 func buscarProduto(productID int64) (core.ProdutoRecord, bool, error) {
-	arquivoProdutos, err := core.AbrirArquivo(core.CaminhoProdutos)
+	arquivoProdutos, err := core.AbrirArquivo(core.ProdPath)
 	if err != nil {
-		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.CaminhoProdutos, err)
+		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.ProdPath, err)
 	}
 	defer arquivoProdutos.Close()
 
-	arquivoIndice, err := core.AbrirArquivo(core.CaminhoIndiceProdutos)
+	arquivoIndice, err := core.AbrirArquivo(core.ProdIdxPath)
 	if err != nil {
-		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.CaminhoIndiceProdutos, err)
+		return core.ProdutoRecord{}, false, fmt.Errorf("abrir %s: %w", core.ProdIdxPath, err)
 	}
 	defer arquivoIndice.Close()
 

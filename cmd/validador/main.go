@@ -8,7 +8,7 @@ import (
 )
 
 func validateProductFile() (bool, string) {
-	file, e := core.AbrirArquivo("dados/produtos.dat")
+	file, e := core.AbrirArquivo(core.ProdPath)
 
 	if e != nil {
 		return false, "Erro ao abrir o arquivo de produtos"
@@ -18,11 +18,11 @@ func validateProductFile() (bool, string) {
 
 	tamanhoTotal := core.ObterTamanhoArquivo(file)
 
-	if tamanhoTotal < 0 || tamanhoTotal%97 != 0 {
+	if tamanhoTotal < 0 || tamanhoTotal%core.ProdSize != 0 {
 		return false, "Tamanho do arquivo de produtos inválido"
 	}
 
-	qtdProdutos := tamanhoTotal / 97
+	qtdProdutos := tamanhoTotal / core.ProdSize
 	lidos := 0
 
 	product, e := core.LerLinhaProduto(file)
@@ -31,7 +31,7 @@ func validateProductFile() (bool, string) {
 		return false, "Erro ao ler o primeiro registro de produtos"
 	}
 
-	if product.Delimiter != '\n' {
+	if product.Delimiter != core.Delim {
 		return false, "Delimitador de produtos inválido"
 	}
 
@@ -52,13 +52,13 @@ func validateProductFile() (bool, string) {
 			id = newId
 		}
 
-		if product.Delimiter != '\n' {
+		if product.Delimiter != core.Delim {
 			return false, "Delimitador de produtos inválido"
 		}
 
 		lidos++
 
-		if lidos%10000 == 0 {
+		if lidos%core.ProdStep == 0 {
 			fmt.Printf("Validando produtos: %d/%d\n", lidos, qtdProdutos)
 		}
 	}
@@ -76,7 +76,7 @@ func validateProductFile() (bool, string) {
 }
 
 func validateAccessFile() (bool, string) {
-	file, e := core.AbrirArquivo("dados/acessos.dat")
+	file, e := core.AbrirArquivo(core.AcessPath)
 
 	if e != nil {
 		return false, "Erro ao abrir o arquivo de acessos"
@@ -84,15 +84,15 @@ func validateAccessFile() (bool, string) {
 
 	defer file.Close()
 
-	reader := bufio.NewReaderSize(file, 4*1024*1024) // Buffer de 4 MB
+	reader := bufio.NewReaderSize(file, core.BufSize) // Buffer de 4 MB
 
 	tamanhoTotal := core.ObterTamanhoArquivo(file)
 
-	if tamanhoTotal < 0 || tamanhoTotal%61 != 0 {
+	if tamanhoTotal < 0 || tamanhoTotal%core.AcessSize != 0 {
 		return false, "Tamanho do arquivo de acessos inválido"
 	}
 
-	qtdAcessos := tamanhoTotal / 61
+	qtdAcessos := tamanhoTotal / core.AcessSize
 	lidos := 0
 
 	access, e := core.LerLinhaAcesso(reader)
@@ -101,7 +101,7 @@ func validateAccessFile() (bool, string) {
 		return false, "Erro ao ler o primeiro registro de acessos"
 	}
 
-	if access.Delimiter != '\n' {
+	if access.Delimiter != core.Delim {
 		return false, "Delimitador de acessos inválido"
 	}
 
@@ -122,13 +122,13 @@ func validateAccessFile() (bool, string) {
 			id = newId
 		}
 
-		if access.Delimiter != '\n' {
+		if access.Delimiter != core.Delim {
 			return false, "Delimitador de acessos inválido"
 		}
 
 		lidos++
 
-		if lidos%1000000 == 0 {
+		if lidos%core.AcessStep == 0 {
 			fmt.Printf("Validando acessos: %d/%d\n", lidos, qtdAcessos)
 		}
 	}
@@ -146,7 +146,7 @@ func validateAccessFile() (bool, string) {
 }
 
 func validateProductIndexFile() (bool, string) {
-	file, e := core.AbrirArquivo("dados/indice_prod.idx")
+	file, e := core.AbrirArquivo(core.ProdIdxPath)
 
 	if e != nil {
 		return false, "Erro ao abrir o arquivo de índices de produtos"
@@ -156,11 +156,11 @@ func validateProductIndexFile() (bool, string) {
 
 	tamanhoTotal := core.ObterTamanhoArquivo(file)
 
-	if tamanhoTotal < 0 || tamanhoTotal%16 != 0 {
+	if tamanhoTotal < 0 || tamanhoTotal%core.IdxSize != 0 {
 		return false, "Tamanho do arquivo de índices de produtos inválido"
 	}
 
-	qtdIndices := tamanhoTotal / 16
+	qtdIndices := tamanhoTotal / core.IdxSize
 	lidos := 0
 
 	productIdx, e := core.LerLinhaProdutoIdx(file)
@@ -188,7 +188,7 @@ func validateProductIndexFile() (bool, string) {
 
 		lidos++
 
-		if lidos%10 == 0 {
+		if lidos%core.ProdIdxStep == 0 {
 			fmt.Printf("Validando índices de produtos: %d/%d\n", lidos, qtdIndices)
 		}
 	}
@@ -207,7 +207,7 @@ func validateProductIndexFile() (bool, string) {
 }
 
 func validateAccessIndexFile() (bool, string) {
-	file, e := core.AbrirArquivo("dados/indice_acess.idx")
+	file, e := core.AbrirArquivo(core.AcessIdxPath)
 
 	if e != nil {
 		return false, "Erro ao abrir o arquivo de índices de acessos"
@@ -217,11 +217,11 @@ func validateAccessIndexFile() (bool, string) {
 
 	tamanhoTotal := core.ObterTamanhoArquivo(file)
 
-	if tamanhoTotal < 0 || tamanhoTotal%16 != 0 {
+	if tamanhoTotal < 0 || tamanhoTotal%core.IdxSize != 0 {
 		return false, "Tamanho do arquivo de índices de acessos inválido"
 	}
 
-	qtdIndices := tamanhoTotal / 16
+	qtdIndices := tamanhoTotal / core.IdxSize
 	lidos := 0
 
 	accessIdx, e := core.LerLinhaAcessoIdx(file)
@@ -249,7 +249,7 @@ func validateAccessIndexFile() (bool, string) {
 
 		lidos++
 
-		if lidos%10000 == 0 {
+		if lidos%core.AcessIdxStep == 0 {
 			fmt.Printf("Validando índices de acessos: %d/%d\n", lidos, qtdIndices)
 		}
 	}

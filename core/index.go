@@ -7,12 +7,6 @@ import (
 	"os"
 )
 
-const (
-	tamanhoRegistroProduto int64 = 97
-	tamanhoEntradaProdutoIdx int64 = 16
-	registrosPorBlocoProduto int64 = 1024
-)
-
 // BuscarProdutoPorID usa busca binária no índice parcial para localizar o
 // bloco de produtos e então percorre no máximo 1024 registros desse bloco.
 // Os dois arquivos devem estar abertos para leitura e permanecer sem alterações
@@ -33,16 +27,16 @@ func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64
 		return produto, false, fmt.Errorf("consultar tamanho do índice de produtos: %w", err)
 	}
 
-	if tamanhoProdutos%tamanhoRegistroProduto != 0 {
-		return produto, false, fmt.Errorf("produtos.dat tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoProdutos, tamanhoRegistroProduto)
+	if tamanhoProdutos%ProdSize != 0 {
+		return produto, false, fmt.Errorf("produtos.dat tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoProdutos, ProdSize)
 	}
-	if tamanhoIndice%tamanhoEntradaProdutoIdx != 0 {
-		return produto, false, fmt.Errorf("índice de produtos tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoIndice, tamanhoEntradaProdutoIdx)
+	if tamanhoIndice%IdxSize != 0 {
+		return produto, false, fmt.Errorf("índice de produtos tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoIndice, IdxSize)
 	}
 
-	quantidadeProdutos := tamanhoProdutos / tamanhoRegistroProduto
-	quantidadeIndices := tamanhoIndice / tamanhoEntradaProdutoIdx
-	indicesEsperados := (quantidadeProdutos + registrosPorBlocoProduto - 1) / registrosPorBlocoProduto
+	quantidadeProdutos := tamanhoProdutos / ProdSize
+	quantidadeIndices := tamanhoIndice / IdxSize
+	indicesEsperados := (quantidadeProdutos + BlockSize - 1) / BlockSize
 	if quantidadeIndices != indicesEsperados {
 		return produto, false, fmt.Errorf("índice de produtos desatualizado ou incompleto: contém %d entradas; esperadas %d", quantidadeIndices, indicesEsperados)
 	}
@@ -58,14 +52,14 @@ func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64
 		if err != nil {
 			return produto, false, err
 		}
-		if entrada.Offset != meio*registrosPorBlocoProduto*tamanhoRegistroProduto {
+		if entrada.Offset != meio*BlockSize*ProdSize {
 			return produto, false, fmt.Errorf("offset inválido na entrada %d do índice de produtos", meio)
 		}
 		registroIndice, err := lerProdutoNoOffset(arquivoProdutos, entrada.Offset)
 		if err != nil {
 			return produto, false, fmt.Errorf("validar entrada %d do índice de produtos: %w", meio, err)
 		}
-		if registroIndice.ProductID != entrada.ProductID || registroIndice.Delimiter != '\n' {
+		if registroIndice.ProductID != entrada.ProductID || registroIndice.Delimiter != Delim {
 			return produto, false, fmt.Errorf("entrada %d do índice de produtos não corresponde aos dados", meio)
 		}
 
@@ -84,7 +78,7 @@ func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64
 	if err != nil {
 		return produto, false, err
 	}
-	registroInicial := entrada.Offset / tamanhoRegistroProduto
+	registroInicial := entrada.Offset / ProdSize
 	produto, err = lerProdutoNoOffset(arquivoProdutos, entrada.Offset)
 	if err != nil {
 		return produto, false, fmt.Errorf("ler início do bloco de produtos %d: %w", indiceBloco, err)
@@ -93,19 +87,19 @@ func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64
 		return ProdutoRecord{}, false, fmt.Errorf("índice de produtos desatualizado no bloco %d", indiceBloco)
 	}
 
-	quantidadeNoBloco := registrosPorBlocoProduto
+	quantidadeNoBloco := BlockSize
 	if restante := quantidadeProdutos - registroInicial; restante < quantidadeNoBloco {
 		quantidadeNoBloco = restante
 	}
 
 	var idAnterior int64
 	for i := int64(0); i < quantidadeNoBloco; i++ {
-		offset := entrada.Offset + i*tamanhoRegistroProduto
+		offset := entrada.Offset + i*ProdSize
 		produto, err = lerProdutoNoOffset(arquivoProdutos, offset)
 		if err != nil {
 			return ProdutoRecord{}, false, fmt.Errorf("ler produto no offset %d: %w", offset, err)
 		}
-		if produto.Delimiter != '\n' {
+		if produto.Delimiter != Delim {
 			return ProdutoRecord{}, false, fmt.Errorf("delimitador inválido no registro de produto no offset %d", offset)
 		}
 		if i > 0 && produto.ProductID <= idAnterior {
@@ -125,7 +119,7 @@ func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64
 
 func lerEntradaProdutoIndice(arquivo *os.File, posicao int64) (ProdutoIdx, error) {
 	var entrada ProdutoIdx
-	offset := posicao * tamanhoEntradaProdutoIdx
+	offset := posicao * IdxSize
 	if _, err := arquivo.Seek(offset, io.SeekStart); err != nil {
 		return entrada, fmt.Errorf("posicionar no índice de produtos no offset %d: %w", offset, err)
 	}

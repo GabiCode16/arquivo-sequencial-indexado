@@ -7,14 +7,8 @@ import (
 	"os"
 )
 
-const (
-	idxProdPath  = "dados/indice_prod.idx"
-	idxAcessPath = "dados/indice_acess.idx"
-	blockSize    = 1024
-)
-
 func generateIdxProdFile() (bool, string) {
-	fileOrig, err := core.AbrirArquivo("dados/produtos.dat")
+	fileOrig, err := core.AbrirArquivo(core.ProdPath)
 
 	if err != nil {
 		return false, "Falha ao abrir o arquivo de produtos"
@@ -22,7 +16,7 @@ func generateIdxProdFile() (bool, string) {
 
 	defer fileOrig.Close()
 
-	fileDest, err := core.CriarArquivo(idxProdPath)
+	fileDest, err := core.CriarArquivo(core.ProdIdxPath)
 
 	if err != nil {
 		return false, "Falha ao criar o arquivo de índices de produtos"
@@ -34,7 +28,7 @@ func generateIdxProdFile() (bool, string) {
 	var produto core.ProdutoRecord
 
 	for err == nil {
-		_, err = core.SeekStart(fileOrig, int64(idx*97)*int64(blockSize))
+		_, err = core.SeekStart(fileOrig, int64(idx*core.ProdSize)*int64(core.BlockSize))
 
 		if err != nil {
 			break
@@ -47,7 +41,7 @@ func generateIdxProdFile() (bool, string) {
 
 			idxStruct := core.ProdutoIdx{
 				ProductID: productId,
-				Offset:    int64(idx*97) * int64(blockSize),
+				Offset:    int64(idx*core.ProdSize) * int64(core.BlockSize),
 			}
 
 			err = binary.Write(fileDest, binary.LittleEndian, &idxStruct)
@@ -58,7 +52,7 @@ func generateIdxProdFile() (bool, string) {
 
 	if err != io.EOF {
 		fileDest.Close()
-		os.Remove(idxProdPath)
+		os.Remove(core.ProdIdxPath)
 		return false, "Erro ao ler o arquivo de produtos, " +
 			"arquivo de índices de produtos não gerado"
 	}
@@ -67,7 +61,7 @@ func generateIdxProdFile() (bool, string) {
 }
 
 func generateIdxAcessFile() (bool, string) {
-	fileOrig, err := core.AbrirArquivo("dados/acessos.dat")
+	fileOrig, err := core.AbrirArquivo(core.AcessPath)
 
 	if err != nil {
 		return false, "Falha ao abrir o arquivo de acessos"
@@ -75,7 +69,7 @@ func generateIdxAcessFile() (bool, string) {
 
 	defer fileOrig.Close()
 
-	fileDest, err := core.CriarArquivo(idxAcessPath)
+	fileDest, err := core.CriarArquivo(core.AcessIdxPath)
 
 	if err != nil {
 		return false, "Falha ao criar o arquivo de índices de acessos"
@@ -87,7 +81,7 @@ func generateIdxAcessFile() (bool, string) {
 	var acesso core.AcessoRecord
 
 	for err == nil {
-		_, err = core.SeekStart(fileOrig, int64(idx*61)*int64(blockSize))
+		_, err = core.SeekStart(fileOrig, int64(idx*core.AcessSize)*int64(core.BlockSize))
 
 		if err != nil {
 			break
@@ -100,7 +94,7 @@ func generateIdxAcessFile() (bool, string) {
 
 			idxStruct := core.AcessoIdx{
 				EventID: eventID,
-				Offset:  int64(idx*61) * int64(blockSize),
+				Offset:  int64(idx*core.AcessSize) * int64(core.BlockSize),
 			}
 
 			err = binary.Write(fileDest, binary.LittleEndian, &idxStruct)
@@ -111,7 +105,7 @@ func generateIdxAcessFile() (bool, string) {
 
 	if err != io.EOF {
 		fileDest.Close()
-		os.Remove(idxAcessPath)
+		os.Remove(core.AcessIdxPath)
 		return false, "Erro ao ler o arquivo de acessos, " +
 			"arquivo de índices de acessos não gerado"
 	}
@@ -122,7 +116,7 @@ func generateIdxAcessFile() (bool, string) {
 func main() {
 
 	existsProdutos, existsAcessos :=
-		core.Exists(idxProdPath), core.Exists(idxAcessPath)
+		core.Exists(core.ProdIdxPath), core.Exists(core.AcessIdxPath)
 
 	if !existsProdutos {
 		success, msg := generateIdxProdFile()
