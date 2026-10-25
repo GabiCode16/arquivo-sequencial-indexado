@@ -10,8 +10,8 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 | --- | --- |
 | Conversão de CSV em produtos e acessos binários | Implementada em `scripts/formatarDados.py` |
 | Modelos binários, leitura e posicionamento | Implementados em `core/model.go` e `core/storage.go` |
-| Validação dos arquivos `.dat` e `.idx` | Implementada em `core/validation.go`, utilizada por `cmd/validador` |
-| Geração de índices parciais a cada 1.024 registros | Implementada em `core/index_generation.go`, utilizada por `cmd/indices` |
+| Validação dos arquivos `.dat` | Implementada em `cmd/validador` |
+| Geração de índices parciais a cada 1.024 registros | Implementada em `cmd/indices` |
 | Consulta de produto por ID | Implementada em `core.BuscarProdutoPorID`, com busca binária no índice e leitura do bloco em `produtos.dat` |
 | Menu da aplicação | Implementado em `main.go` para consultar produto por ID e sair |
 | Busca de acesso, demais consultas e manutenção dos índices no pacote `core` | Pendentes |
@@ -29,13 +29,8 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 │       └── main.go          # Validação sequencial dos arquivos .dat
 ├── core/
 │   ├── model.go            # Estruturas dos registros de dados e índices
-│   ├── storage.go          # Abertura, leitura binária, tamanho e Seek
-│   ├── paths.go            # Caminhos padrão dos executáveis
-│   ├── records.go          # Formatos e regras compartilhadas dos registros
-│   ├── index.go            # Consulta de produtos pelo índice parcial
-│   ├── index_generation.go # Geração compartilhada dos índices
-│   ├── validation.go       # Validação compartilhada de dados e índices
-│   ├── files_test.go       # Testes de geração, validação e busca
+│   ├── storage.go          # Abertura, criação, leitura binária, tamanho e Seek
+│   ├── index.go            # Reservado para operações sobre índices
 │   └── queries.go          # Reservado para consultas
 ├── scripts/
 │   └── formatarDados.py    # Limpeza e conversão do CSV
@@ -99,13 +94,29 @@ python scripts/formatarDados.py
 
 O script cria `dados/` automaticamente e percorre o CSV duas vezes: primeiro para gerar produtos e depois para gerar acessos. Os arquivos `.dat` de destino são sobrescritos. Ao final de cada etapa, exibe o tamanho do arquivo, a quantidade de registros e o resto da divisão pelo tamanho do registro.
 
-### 3. Gerar os índices parciais
+### 3. Validar os dados
+
+```sh
+go run ./cmd/validador
+```
+
+O validador percorre os dois arquivos e verifica:
+
+- Tamanho total múltiplo de 97 bytes para produtos e de 61 bytes para acessos.
+- Presença de pelo menos um registro em cada arquivo.
+- IDs em ordem estritamente crescente, sem duplicatas.
+- Delimitador `\n` em todos os registros.
+- Quantidade de registros lidos compatível com o tamanho do arquivo e término em EOF.
+
+A leitura de acessos usa um buffer de 4 MiB. O comando informa o resultado de cada arquivo no terminal, mas não define um código de saída diferente de zero quando a validação falha. Ele não valida índices, referências entre acessos e produtos nem o conteúdo semântico dos campos.
+
+### 4. Gerar os índices parciais
 
 ```sh
 go run ./cmd/indices
 ```
 
-O comando lê os arquivos `.dat` e cria os índices que ainda não existem, informando o resultado de cada operação. Retorna código de saída 1 quando ocorre uma falha. A geração usa um arquivo temporário e só o renomeia para o destino após concluir e fechar a escrita.
+O comando lê os arquivos `.dat` e cria os índices que ainda não existem. Não apresenta mensagens de sucesso ou falha e não propaga o resultado das funções geradoras como código de saída; confira a existência e o tamanho dos arquivos de saída.
 
 **Após gerar novamente os dados, remova os índices antigos antes de executar esse comando.** Índices existentes são ignorados, mesmo que estejam vazios ou desatualizados.
 
@@ -122,23 +133,6 @@ No Linux ou macOS:
 rm -f dados/indice_prod.idx dados/indice_acess.idx
 go run ./cmd/indices
 ```
-
-### 4. Validar os dados e índices
-
-```sh
-go run ./cmd/validador
-```
-
-O validador percorre os quatro arquivos e verifica:
-
-- Tamanho total compatível com os registros: 97 bytes para produtos, 61 para acessos e 16 para índices.
-- Presença de pelo menos um registro em cada arquivo.
-- IDs em ordem estritamente crescente, sem duplicatas.
-- Delimitador `\n` nos registros de dados.
-- Offsets dos índices correspondentes ao início de cada bloco de 1.024 registros.
-- Quantidade de registros lidos compatível com o tamanho do arquivo e término em EOF.
-
-As leituras usam buffer de 4 MiB. O comando retorna código de saída 1 se algum arquivo falhar. A validação dos índices é estrutural; ela não compara suas chaves com os arquivos de dados. A consulta de produto faz essa comparação nas entradas que acessa. Referências entre acessos e produtos e o conteúdo semântico dos campos não são validados.
 
 ### Aplicação principal e compilação
 
@@ -222,7 +216,7 @@ O byte final `\n` faz parte do registro binário; os arquivos devem ser lidos pe
 | `indice_prod.idx` | `core.ProdutoIdx` | `ProductID` (`int64`) | `Offset` (`int64`) |
 | `indice_acess.idx` | `core.AcessoIdx` | `EventID` (`int64`) | `Offset` (`int64`) |
 
-Os índices não possuem delimitador. Cada entrada referencia o primeiro registro de um bloco de **1.024 registros**, incluindo o primeiro bloco do arquivo. A constante `core.RegistrosPorBloco`, compartilhada pela geração, validação e consulta, representa uma quantidade de registros, não de bytes.
+Os índices não possuem delimitador. Cada entrada referencia o primeiro registro de um bloco de **1.024 registros**, incluindo o primeiro bloco do arquivo. O valor `blockSize = 1024` em `cmd/indices/main.go` representa uma quantidade de registros, não de bytes.
 
 Para a entrada de índice `k`, contando a partir de zero:
 
@@ -245,7 +239,7 @@ Para compilar e verificar os pacotes com o mecanismo de testes do Go:
 go test ./...
 ```
 
-Os testes usam arquivos temporários e cobrem geração e reconstrução de índices, buscas entre blocos, IDs ausentes, dados e índices inválidos e preservação do índice anterior em caso de falha. A validação da base local deve ser executada separadamente com `go run ./cmd/validador`.
+Ainda não há arquivos de testes automatizados no repositório. A validação dos dados deve ser executada separadamente com `go run ./cmd/validador`.
 
 As consultas previstas são:
 
@@ -253,4 +247,4 @@ As consultas previstas são:
 - Obter a data/hora e o tipo de um evento pelo ID.
 - Obter a marca do produto associado a um evento e a data desse evento.
 
-As consultas de acesso e de relacionamento entre evento e produto ainda precisam de busca indexada, implementação no pacote `core` e integração à aplicação principal.
+As consultas de acesso e de relacionamento entre evento e produto ainda precisam de busca indexada, implementação no pacote `core` e integração à aplicação principal. A geração de índices também precisa de tratamento explícito dos erros de posicionamento e escrita, atualmente ignorados.
