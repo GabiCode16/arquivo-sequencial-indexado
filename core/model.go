@@ -18,3 +18,15 @@ type AcessoRecord struct {
 	EventTime [20]byte
 	Delimiter byte
 }
+
+// ProdutoIdx representa o registro de tamanho fixo em indice_prod.idx (16 bytes).
+type ProdutoIdx struct {
+	ProductID int64
+	Offset    int64
+}
+
+// AcessoIdx representa o registro de tamanho fixo em indice_acess.idx (16 bytes).
+type AcessoIdx struct {
+	EventID int64
+	Offset  int64
+}
