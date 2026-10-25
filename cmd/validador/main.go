@@ -2,6 +2,7 @@ package main
 
 import (
 	"asi/core"
+	"bufio"
 	"fmt"
 	"io"
 )
@@ -28,6 +29,10 @@ func validateProductFile() (bool, string) {
 
 	if e != nil {
 		return false, "Erro ao ler o primeiro registro de produtos"
+	}
+
+	if product.Delimiter != '\n' {
+		return false, "Delimitador de produtos inválido"
 	}
 
 	id := product.ProductID
@@ -58,6 +63,10 @@ func validateProductFile() (bool, string) {
 		}
 	}
 
+	if int64(lidos) != qtdProdutos {
+		return false, "Quantidade de registros de produtos lidos não corresponde ao tamanho do arquivo"
+	}
+
 	if e == io.EOF {
 		fmt.Printf("Validando produtos: %d/%d\n", lidos, qtdProdutos)
 		return true, "Sucesso: Arquivo de produtos válido"
@@ -75,6 +84,8 @@ func validateAccessFile() (bool, string) {
 
 	defer file.Close()
 
+	reader := bufio.NewReaderSize(file, 4*1024*1024) // Buffer de 4 MB
+
 	tamanhoTotal := core.ObterTamanhoArquivo(file)
 
 	if tamanhoTotal < 0 || tamanhoTotal%61 != 0 {
@@ -84,17 +95,21 @@ func validateAccessFile() (bool, string) {
 	qtdAcessos := tamanhoTotal / 61
 	lidos := 0
 
-	access, e := core.LerLinhaAcesso(file)
+	access, e := core.LerLinhaAcesso(reader)
 
 	if e != nil {
 		return false, "Erro ao ler o primeiro registro de acessos"
+	}
+
+	if access.Delimiter != '\n' {
+		return false, "Delimitador de acessos inválido"
 	}
 
 	id := access.EventID
 	lidos++
 
 	for {
-		access, e = core.LerLinhaAcesso(file)
+		access, e = core.LerLinhaAcesso(reader)
 		newId := access.EventID
 
 		if e != nil {
@@ -116,6 +131,10 @@ func validateAccessFile() (bool, string) {
 		if lidos%1000000 == 0 {
 			fmt.Printf("Validando acessos: %d/%d\n", lidos, qtdAcessos)
 		}
+	}
+
+	if int64(lidos) != qtdAcessos {
+		return false, "Quantidade de registros de acessos lidos não corresponde ao tamanho do arquivo"
 	}
 
 	if e == io.EOF {
