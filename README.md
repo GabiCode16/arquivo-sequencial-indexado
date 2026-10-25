@@ -6,6 +6,9 @@ Projeto para a disciplina de Algoritmos e Estruturas de Dados II, com foco na or
 
 ```text
 ├── main.go               # Ponto de entrada, menu interativo e orquestração do sistema
+├── cmd/
+│   └── validador/
+│       └── main.go       # Script utilitário em Go para validação de integridade dos arquivos .dat
 ├── core/
 │   ├── model.go          # Definição das structs de dados e representações em memória
 │   ├── storage.go        # Manipulação de arquivos binários (.dat), operações de I/O e Seek
@@ -43,7 +46,11 @@ Projeto para a disciplina de Algoritmos e Estruturas de Dados II, com foco na or
 Na raiz do projeto, execute:
 
 ```bash
+# Executar a aplicação principal (menu interativo):
 go run .
+
+# Executar o validador de integridade dos arquivos binários:
+go run ./cmd/validador
 ```
 
 ### Compilação do binário
