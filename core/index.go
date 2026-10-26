@@ -1,186 +1,289 @@
 package core
 
-import (
-	"encoding/binary"
-	"fmt"
-	"os"
-)
+// ---------------------------------------------------------
+// 1. CHAMADAS PÚBLICAS PRINCIPAIS
+// ---------------------------------------------------------
 
-type entradaIdx struct {
-	Chave  int64
-	Offset int64
-}
-
-// local identifica um registro ou o ponto de inserção na cadeia de extensão.
-type local struct {
-	bloco  int64
-	offset int64
-	ant    int64
-	ext    bool
-}
-
-// BuscarProdutoPorID consulta o bloco principal e sua extensão, ignorando excluídos.
-func BuscarProdutoPorID(dados, indice *os.File, id int64) (ProdutoRecord, bool, error) {
-	produto, _, achou, err := localizar(dados, indice, id, prodFmt)
-	if err != nil || !achou || produto.Excluido {
-		return ProdutoRecord{}, false, err
+// BuscarProdutoPorID busca um produto pelo ID, preenchendo o ponteiro fornecido se encontrado e ativo.
+func BuscarProdutoPorID(id int64, p *ProdutoRecord) (bool, string) {
+	offset, msg := localizarProduto(id)
+	if offset == -1 {
+		return false, msg
 	}
-	return produto, true, nil
-}
 
-// BuscarAcessoPorID consulta o bloco principal e sua extensão, ignorando excluídos.
-func BuscarAcessoPorID(dados, indice *os.File, id int64) (AcessoRecord, bool, error) {
-	acesso, _, achou, err := localizar(dados, indice, id, acessFmt)
-	if err != nil || !achou || acesso.Excluido {
-		return AcessoRecord{}, false, err
-	}
-	return acesso, true, nil
-}
-
-func conferirArquivos(dados, indice *os.File, size int) (int64, int64, error) {
-	if dados == nil || indice == nil {
-		return 0, 0, fmt.Errorf("arquivos de dados e índice são obrigatórios")
-	}
-	tamDados, err := tamanhoArquivo(dados)
+	arquivo, err := AbrirArquivo(ProdPath)
 	if err != nil {
-		return 0, 0, err
+		return false, "[Erro] Falha ao abrir arquivo de produtos"
 	}
-	tamIndice, err := tamanhoArquivo(indice)
+	defer arquivo.Close()
+
+	if _, err := SeekStart(arquivo, offset); err != nil {
+		return false, "[Erro] Falha ao posicionar ponteiro no arquivo de produtos"
+	}
+
+	registro, err := LerLinhaProduto(arquivo)
 	if err != nil {
-		return 0, 0, err
+		return false, "[Erro] Falha ao ler linha de produto"
 	}
-	if tamDados%int64(size) != 0 || tamIndice%IdxSize != 0 {
-		return 0, 0, fmt.Errorf("formato inválido; regenere os arquivos de dados e índices")
+
+	if registro.Excluido {
+		return false, "[Erro] Produto excluído"
 	}
-	total, blocos := tamDados/int64(size), tamIndice/IdxSize
-	if esperado := (total + BlockSize - 1) / BlockSize; blocos != esperado {
-		return 0, 0, fmt.Errorf("índice desatualizado: contém %d entradas; esperadas %d", blocos, esperado)
-	}
-	return total, blocos, nil
+
+	*p = registro
+	return true, "[Sucesso] Produto encontrado"
 }
 
-func localizar[T any](dados, indice *os.File, id int64, f formato[T]) (T, local, bool, error) {
-	var vazio T
-	pos := local{offset: EloNil, ant: EloNil}
-	total, blocos, err := conferirArquivos(dados, indice, f.size)
-	if err != nil || total == 0 {
-		return vazio, pos, false, err
+// BuscarAcessoPorID busca um acesso pelo ID, preenchendo o ponteiro fornecido se encontrado e ativo.
+func BuscarAcessoPorID(id int64, a *AcessoRecord) (bool, string) {
+	offset, msg := localizarAcesso(id)
+	if offset == -1 {
+		return false, msg
 	}
 
-	// A primeira faixa também recebe chaves menores que a chave inicial da base.
-	bloco := int64(0)
-	for inicio, fim := int64(0), blocos-1; inicio <= fim; {
+	arquivo, err := AbrirArquivo(AcessPath)
+	if err != nil {
+		return false, "[Erro] Falha ao abrir arquivo de acessos"
+	}
+	defer arquivo.Close()
+
+	if _, err := SeekStart(arquivo, offset); err != nil {
+		return false, "[Erro] Falha ao posicionar ponteiro no arquivo de acessos"
+	}
+
+	registro, err := LerLinhaAcesso(arquivo)
+	if err != nil {
+		return false, "[Erro] Falha ao ler linha de acesso"
+	}
+
+	if registro.Excluido {
+		return false, "[Erro] Acesso excluído"
+	}
+
+	*a = registro
+	return true, "[Sucesso] Acesso encontrado"
+}
+
+// ---------------------------------------------------------
+// 2. FUNÇÕES DE LOCALIZAÇÃO (PESQUISA BINÁRIA + BLOCO + EXTENSÃO)
+// ---------------------------------------------------------
+
+// localizarIdxProduto realiza a pesquisa binária diretamente no arquivo de índice de produtos.
+func localizarIdxProduto(id int64) (int64, string) {
+	indice, err := AbrirArquivo(ProdIdxPath)
+	if err != nil {
+		return -1, "[Erro] Falha ao abrir arquivo de índice"
+	}
+	defer indice.Close()
+
+	tamIndice := ObterTamanhoArquivo(indice)
+	if tamIndice < 0 || tamIndice%IdxSize != 0 {
+		return -1, "[Erro] Tamanho do arquivo de índice inválido"
+	}
+
+	blocos := tamIndice / IdxSize
+	if blocos == 0 {
+		return -1, "[Erro] Arquivo de índice vazio"
+	}
+
+	// Pesquisa binária no arquivo de índice (.idx)
+	var offsetEncontrado int64 = -1
+	inicio, fim := int64(0), blocos-1
+
+	for inicio <= fim {
 		meio := inicio + (fim-inicio)/2
-		entrada, err := lerEntradaIndice(indice, meio)
+
+		if _, err := SeekStart(indice, meio*IdxSize); err != nil {
+			return -1, "[Erro] Falha ao buscar no arquivo de índice"
+		}
+
+		entrada, err := LerLinhaProdutoIdx(indice)
 		if err != nil {
-			return vazio, pos, false, err
+			return -1, "[Erro] Falha ao ler entrada do arquivo de índice"
 		}
-		if entrada.Offset != meio*BlockSize*int64(f.size) {
-			return vazio, pos, false, fmt.Errorf("offset inválido no índice, entrada %d", meio)
+
+		if entrada.ProductID == id {
+			return entrada.Offset, "[Sucesso] Produto encontrado"
 		}
-		ancora, err := lerNoOffset(dados, entrada.Offset, f)
-		if err != nil {
-			return vazio, pos, false, err
-		}
-		if f.id(ancora) != entrada.Chave {
-			return vazio, pos, false, fmt.Errorf("entrada %d do índice não corresponde aos dados", meio)
-		}
-		if entrada.Chave <= id {
-			bloco = meio
+
+		if entrada.ProductID < id {
+			// Salva o candidato válido e tenta buscar uma chave maior à direita
+			offsetEncontrado = entrada.Offset
 			inicio = meio + 1
 		} else {
+			// A chave do índice é maior, vai para a esquerda
 			fim = meio - 1
 		}
 	}
 
-	pos.bloco = bloco
-	inicio := bloco * BlockSize * int64(f.size)
-	ancora, err := lerNoOffset(dados, inicio, f)
+	return offsetEncontrado, "[Sucesso] Produto encontrado"
+}
+
+// LocalizarProduto localiza o offset exato de um produto no arquivo de dados.
+// Utiliza a pesquisa binária no índice para encontrar o bloco e, em seguida,
+// faz a varredura linear dentro daquele bloco principal.
+func localizarProduto(id int64) (int64, string) {
+	// 1. Localiza o offset inicial do bloco usando a pesquisa binária no índice
+	offsetBloco, msg := localizarIdxProduto(id)
+	if offsetBloco == -1 {
+		return -1, msg
+	}
+
+	// 2. Abre o arquivo de dados principais
+	dados, err := AbrirArquivo(ProdPath)
 	if err != nil {
-		return vazio, pos, false, err
+		return -1, "[Erro] Falha ao abrir arquivo de dados de produtos"
 	}
-	limite := BlockSize
-	if restante := total - bloco*BlockSize; restante < limite {
-		limite = restante
+	defer dados.Close()
+
+	tamDados := ObterTamanhoArquivo(dados)
+	if tamDados < 0 || tamDados%int64(ProdSize) != 0 {
+		return -1, "[Erro] Tamanho do arquivo de dados inválido"
 	}
-	var idAnterior int64
-	for i := int64(0); i < limite; i++ {
-		offset := inicio + i*int64(f.size)
-		registro := ancora
-		if i > 0 {
-			registro, err = lerNoOffset(dados, offset, f)
-			if err != nil {
-				return vazio, pos, false, err
-			}
+	totalRegistros := tamDados / int64(ProdSize)
+
+	// Posiciona o cursor no início do bloco encontrado pelo índice
+	if _, err := SeekStart(dados, offsetBloco); err != nil {
+		return -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados"
+	}
+
+	// Calcula quantos registros faltam a partir do offset do bloco ou usa o tamanho completo do bloco
+	// Como cada bloco possui BlockSize registros, limitamos a varredura ao final do bloco ou ao fim do arquivo.
+	offsetAtual := offsetBloco
+	registrosLidos := int64(0)
+
+	for registrosLidos < BlockSize && (offsetAtual/int64(ProdSize)) < totalRegistros {
+		if _, err := SeekStart(dados, offsetAtual); err != nil {
+			return -1, "[Erro] Falha ao ler registro no bloco"
 		}
-		if i > 0 && f.id(registro) <= idAnterior {
-			return vazio, pos, false, fmt.Errorf("registros fora de ordem no bloco %d", bloco)
+
+		registro, err := LerLinhaProduto(dados)
+		if err != nil {
+			return -1, "[Erro] Falha ao ler linha de produto"
 		}
-		if f.id(registro) == id {
-			pos.offset = offset
-			return registro, pos, true, nil
+
+		// Se achou o ID exato
+		if registro.ProductID == id {
+			return offsetAtual, "[Sucesso] Produto localizado no bloco de dados"
 		}
-		if f.id(registro) > id {
+
+		// Como os registros dentro do bloco estão ordenados, se passarmos de ID, ele não existe neste bloco
+		if registro.ProductID > id {
 			break
 		}
-		idAnterior = f.id(registro)
+
+		offsetAtual += int64(ProdSize)
+		registrosLidos++
 	}
 
-	// O Elo da âncora continua sendo usado mesmo quando ela está excluída.
-	pos.ext = true
-	proximo := f.elo(ancora)
-	if proximo == EloNil {
-		return vazio, pos, false, nil
-	}
-	ext, err := AbrirArquivo(caminhoExt(dados, bloco))
+	return -1, "[Erro] Produto não encontrado no bloco de dados principal"
+}
+
+// localizarIdxAcesso realiza a pesquisa binária diretamente no arquivo de índice de acessos.
+func localizarIdxAcesso(id int64) (int64, string) {
+	indice, err := AbrirArquivo(AcessIdxPath)
 	if err != nil {
-		return vazio, pos, false, fmt.Errorf("abrir extensão do bloco %d: %w", bloco, err)
+		return -1, "[Erro] Falha ao abrir arquivo de índice de acessos"
 	}
-	defer ext.Close()
-	tamanho, err := tamanhoArquivo(ext)
-	if err != nil {
-		return vazio, pos, false, err
+	defer indice.Close()
+
+	tamIndice := ObterTamanhoArquivo(indice)
+	if tamIndice < 0 || tamIndice%IdxSize != 0 {
+		return -1, "[Erro] Tamanho do arquivo de índice de acessos inválido"
 	}
-	if tamanho%int64(f.size) != 0 {
-		return vazio, pos, false, fmt.Errorf("extensão do bloco %d tem tamanho inválido", bloco)
+
+	blocos := tamIndice / IdxSize
+	if blocos == 0 {
+		return -1, "[Erro] Arquivo de índice de acessos vazio"
 	}
-	var chaveAnterior int64
-	for lidos := int64(0); proximo != EloNil; lidos++ {
-		if lidos >= tamanho/int64(f.size) || proximo < 0 || proximo%int64(f.size) != 0 || proximo >= tamanho {
-			return vazio, pos, false, fmt.Errorf("elo inválido ou ciclo na extensão do bloco %d", bloco)
+
+	// Pesquisa binária no arquivo de índice (.idx)
+	var offsetEncontrado int64 = -1
+	inicio, fim := int64(0), blocos-1
+
+	for inicio <= fim {
+		meio := inicio + (fim-inicio)/2
+
+		if _, err := SeekStart(indice, meio*IdxSize); err != nil {
+			return -1, "[Erro] Falha ao buscar no arquivo de índice de acessos"
 		}
-		registro, err := lerNoOffset(ext, proximo, f)
+
+		entrada, err := LerLinhaAcessoIdx(indice)
 		if err != nil {
-			return vazio, pos, false, err
+			return -1, "[Erro] Falha ao ler entrada do arquivo de índice de acessos"
 		}
-		if lidos > 0 && f.id(registro) <= chaveAnterior {
-			return vazio, pos, false, fmt.Errorf("cadeia de extensão fora de ordem ou cíclica no bloco %d", bloco)
+
+		if entrada.EventID == id {
+			return entrada.Offset, "[Sucesso] Acesso encontrado"
 		}
-		pos.offset = proximo
-		if f.id(registro) >= id {
-			return registro, pos, f.id(registro) == id, nil
+
+		if entrada.EventID < id {
+			// Salva o candidato válido e tenta buscar uma chave maior à direita
+			offsetEncontrado = entrada.Offset
+			inicio = meio + 1
+		} else {
+			// A chave do índice é maior, vai para a esquerda
+			fim = meio - 1
 		}
-		chaveAnterior = f.id(registro)
-		pos.ant = proximo
-		proximo = f.elo(registro)
 	}
-	pos.offset = EloNil
-	return vazio, pos, false, nil
+
+	return offsetEncontrado, "[Sucesso] Acesso encontrado"
 }
 
-func lerEntradaIndice(arquivo *os.File, posicao int64) (entradaIdx, error) {
-	var entrada entradaIdx
-	if _, err := SeekStart(arquivo, posicao*IdxSize); err != nil {
-		return entrada, err
+// LocalizarAcesso localiza o offset exato de um acesso no arquivo de dados.
+// Utiliza a pesquisa binária no índice para encontrar o bloco e, em seguida,
+// faz a varredura linear dentro daquele bloco principal.
+func localizarAcesso(id int64) (int64, string) {
+	// 1. Localiza o offset inicial do bloco usando a pesquisa binária no índice
+	offsetBloco, msg := localizarIdxAcesso(id)
+	if offsetBloco == -1 {
+		return -1, msg
 	}
-	err := binary.Read(arquivo, binary.LittleEndian, &entrada)
-	return entrada, err
-}
 
-func tamanhoArquivo(arquivo *os.File) (int64, error) {
-	info, err := arquivo.Stat()
+	// 2. Abre o arquivo de dados principais de acessos
+	dados, err := AbrirArquivo(AcessPath)
 	if err != nil {
-		return 0, err
+		return -1, "[Erro] Falha ao abrir arquivo de dados de acessos"
 	}
-	return info.Size(), nil
+	defer dados.Close()
+
+	tamDados := ObterTamanhoArquivo(dados)
+	if tamDados < 0 || tamDados%int64(AcessSize) != 0 {
+		return -1, "[Erro] Tamanho do arquivo de dados de acessos inválido"
+	}
+	totalRegistros := tamDados / int64(AcessSize)
+
+	// Posiciona o cursor no início do bloco encontrado pelo índice
+	if _, err := SeekStart(dados, offsetBloco); err != nil {
+		return -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados de acessos"
+	}
+
+	offsetAtual := offsetBloco
+	registrosLidos := int64(0)
+
+	for registrosLidos < BlockSize && (offsetAtual/int64(AcessSize)) < totalRegistros {
+		if _, err := SeekStart(dados, offsetAtual); err != nil {
+			return -1, "[Erro] Falha ao ler registro no bloco de acessos"
+		}
+
+		registro, err := LerLinhaAcesso(dados)
+		if err != nil {
+			return -1, "[Erro] Falha ao ler linha de acesso"
+		}
+
+		// Se achou o ID exato
+		if registro.EventID == id {
+			return offsetAtual, "[Sucesso] Acesso localizado no bloco de dados"
+		}
+
+		// Como os registros dentro do bloco estão ordenados, se passarmos do ID, ele não existe neste bloco
+		if registro.EventID > id {
+			break
+		}
+
+		offsetAtual += int64(AcessSize)
+		registrosLidos++
+	}
+
+	return -1, "[Erro] Acesso não encontrado no bloco de dados principal"
 }

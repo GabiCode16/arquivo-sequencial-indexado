@@ -11,17 +11,31 @@ import (
 	"strings"
 )
 
+// Opções de navegação do menu e configurações de formatação do console.
+const (
+	optProd     = "1"
+	optInsProd  = "2"
+	optRemProd  = "3"
+	optInsAcess = "4"
+	optRemAcess = "5"
+	optExit     = "0"
+	idBase      = 10
+	idBits      = 64
+	floatBits   = 64
+	textPad     = " \x00"
+)
+
 func main() {
 	entrada := bufio.NewScanner(os.Stdin)
 
 	for {
 		fmt.Println("\n=== Arquivo Sequencial-Indexado ===")
-		fmt.Printf("%s - Consultar produto por ID\n", core.OptProd)
-		fmt.Printf("%s - Inserir produto\n", core.OptInsProd)
-		fmt.Printf("%s - Remover produto\n", core.OptRemProd)
-		fmt.Printf("%s - Inserir acesso\n", core.OptInsAcess)
-		fmt.Printf("%s - Remover acesso\n", core.OptRemAcess)
-		fmt.Printf("%s - Sair\n", core.OptExit)
+		fmt.Printf("%s - Consultar produto por ID\n", optProd)
+		fmt.Printf("%s - Inserir produto\n", optInsProd)
+		fmt.Printf("%s - Remover produto\n", optRemProd)
+		fmt.Printf("%s - Inserir acesso\n", optInsAcess)
+		fmt.Printf("%s - Remover acesso\n", optRemAcess)
+		fmt.Printf("%s - Sair\n", optExit)
 		fmt.Print("Opção: ")
 
 		if !entrada.Scan() {
@@ -32,17 +46,17 @@ func main() {
 		}
 
 		switch strings.TrimSpace(entrada.Text()) {
-		case core.OptProd:
+		case optProd:
 			consultarProduto(entrada)
-		case core.OptInsProd:
+		case optInsProd:
 			inserir(entrada, true)
-		case core.OptRemProd:
+		case optRemProd:
 			remover(entrada, true)
-		case core.OptInsAcess:
+		case optInsAcess:
 			inserir(entrada, false)
-		case core.OptRemAcess:
+		case optRemAcess:
 			remover(entrada, false)
-		case core.OptExit:
+		case optExit:
 			return
 		default:
 			fmt.Println("Opção inválida.")
@@ -59,9 +73,9 @@ func consultarProduto(entrada *bufio.Scanner) {
 		return
 	}
 
-	productID, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), core.IDBase, core.IDBits)
+	productID, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), idBase, idBits)
 	if err != nil {
-		fmt.Printf("ID inválido. Informe um número inteiro de %d bits.\n", core.IDBits)
+		fmt.Printf("ID inválido. Informe um número inteiro de %d bits.\n", idBits)
 		return
 	}
 
@@ -80,8 +94,8 @@ func consultarProduto(entrada *bufio.Scanner) {
 
 	fmt.Printf("\nProduto encontrado\nID: %d\nMarca: %s\nCategoria: %s\nPreço: %.2f\n",
 		produto.ProductID,
-		strings.Trim(string(produto.Brand[:]), core.TextPad),
-		strings.Trim(string(produto.CategoryCode[:]), core.TextPad),
+		strings.Trim(string(produto.Brand[:]), textPad),
+		strings.Trim(string(produto.CategoryCode[:]), textPad),
 		produto.Price,
 	)
 }
@@ -198,7 +212,7 @@ func lerID(entrada *bufio.Scanner, rotulo string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseInt(texto, core.IDBase, core.IDBits)
+	return strconv.ParseInt(texto, idBase, idBits)
 }
 
 func lerTexto(entrada *bufio.Scanner, rotulo string, destino []byte) error {
@@ -232,7 +246,7 @@ func lerProduto(entrada *bufio.Scanner) (core.ProdutoRecord, error) {
 	if err != nil {
 		return p, err
 	}
-	p.Price, err = strconv.ParseFloat(preco, core.FloatBits)
+	p.Price, err = strconv.ParseFloat(preco, floatBits)
 	return p, err
 }
 

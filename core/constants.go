@@ -6,7 +6,6 @@ const (
 	AcessPath    = "dados/acessos.dat"
 	ProdIdxPath  = "dados/indice_prod.idx"
 	AcessIdxPath = "dados/indice_acess.idx"
-	ExtFmt       = "%s_%d.ext"
 )
 
 // Tamanhos da representação binária em disco e dos campos de texto.
@@ -20,7 +19,6 @@ const (
 	TypeLen         = 16
 	TimeLen         = 20
 	Delim           = '\n'
-	EloNil    int64 = -1
 	EloSize         = 8
 	FlagSize        = 1
 	DelimSize       = 1
@@ -35,18 +33,4 @@ const (
 	AcessStep    = 1_000_000
 	ProdIdxStep  = 10
 	AcessIdxStep = 10_000
-)
-
-// Opções do menu, conversão de IDs e preenchimento dos campos de texto.
-const (
-	OptProd     = "1"
-	OptInsProd  = "2"
-	OptRemProd  = "3"
-	OptInsAcess = "4"
-	OptRemAcess = "5"
-	OptExit     = "0"
-	IDBase      = 10
-	IDBits      = 64
-	FloatBits   = 64
-	TextPad     = " \x00"
 )
