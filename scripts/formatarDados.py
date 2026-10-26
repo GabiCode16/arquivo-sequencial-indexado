@@ -11,8 +11,8 @@ Objetivo:
     a leitura direta via Seek e binary.Read da linguagem Go.
 
 Arquivos gerados:
-    1. dados/produtos.dat : 97 bytes fixos por registro, ordenado por product_id
-    2. dados/acessos.dat  : 61 bytes fixos por registro, ordenado por event_id
+    1. dados/produtos.dat : 106 bytes fixos por registro, ordenado por product_id
+    2. dados/acessos.dat  : 70 bytes fixos por registro, ordenado por event_id
 ================================================================================
 """
 
@@ -33,7 +33,7 @@ CAMINHO_ACESSOS_DAT = os.path.join("dados", "acessos.dat")
 
 # ==============================================================================
 # ESPECIFICAÇÃO TÉCNICA: PRODUTOS (produtos.dat)
-# Total por registro: 97 bytes
+# Total por registro: 106 bytes
 #
 # Estrutura em Go correspondente:
 #   type ProdutoRecord struct {
@@ -41,17 +41,19 @@ CAMINHO_ACESSOS_DAT = os.path.join("dados", "acessos.dat")
 #       Brand        [32]byte  // 32 bytes (ASCII com padding de espaços)
 #       CategoryCode [48]byte  // 48 bytes (ASCII com padding de espaços)
 #       Price        float64   // 8 bytes (IEEE 754 precisão dupla)
+#       Elo          int64    // 8 bytes (offset na extensao, -1 = sem elo)
+#       Excluido     bool     // 1 byte
 #       Delimiter    byte      // 1 byte  ('\n' = 0x0A)
 #   }
 # ==============================================================================
 TAM_BRAND = 32               # Tamanho fixo do campo marca em bytes
 TAM_CATEGORY = 48            # Tamanho fixo da categoria em bytes
-FORMATO_PRODUTO = "<q32s48sd1s"  # '<': Little-Endian, 'q': int64, '32s': bytes(32), '48s': bytes(48), 'd': float64, '1s': byte
-TAMANHO_REGISTRO_PROD = 97   # 8 + 32 + 48 + 8 + 1 = 97 bytes
+FORMATO_PRODUTO = "<q32s48sdq?1s"  # Little-Endian: id, marca, categoria, preco, elo, exclusao, delimitador
+TAMANHO_REGISTRO_PROD = 106   # 8 + 32 + 48 + 8 + 8 + 1 + 1 = 106 bytes
 
 # ==============================================================================
 # ESPECIFICAÇÃO TÉCNICA: ACESSOS (acessos.dat)
-# Total por registro: 61 bytes
+# Total por registro: 70 bytes
 #
 # Estrutura em Go correspondente:
 #   type AcessoRecord struct {
@@ -60,13 +62,15 @@ TAMANHO_REGISTRO_PROD = 97   # 8 + 32 + 48 + 8 + 1 = 97 bytes
 #       EventType [16]byte  // 16 bytes (ASCII com padding de espaços)
 #       ProductID int64     // 8 bytes (ID do produto associado)
 #       EventTime [20]byte  // 20 bytes (Data/hora ISO: YYYY-MM-DD HH:MM:SS )
+#       Elo       int64     // 8 bytes (offset na extensao, -1 = sem elo)
+#       Excluido  bool      // 1 byte
 #       Delimiter byte      // 1 byte  ('\n' = 0x0A)
 #   }
 # ==============================================================================
 TAM_EVENT_TYPE = 16          # Tamanho fixo do tipo de evento (view, cart, purchase)
 TAM_EVENT_TIME = 20          # Tamanho fixo do timestamp
-FORMATO_ACESSO = "<qq16sq20s1s"  # '<': Little-Endian, 'q': int64, 'q': int64, '16s': bytes, 'q': int64, '20s': bytes, '1s': byte
-TAMANHO_REGISTRO_ACESSO = 61 # 8 + 8 + 16 + 8 + 20 + 1 = 61 bytes
+FORMATO_ACESSO = "<qq16sq20sq?1s"  # Little-Endian: id, usuario, tipo, produto, data, elo, exclusao, delimitador
+TAMANHO_REGISTRO_ACESSO = 70 # 8 + 8 + 16 + 8 + 20 + 8 + 1 + 1 = 70 bytes
 
 
 def verificar_arquivo(caminho):
@@ -212,12 +216,12 @@ def gerar_produtos_dat(caminho_csv, caminho_dat, limite_linhas=None):
     1. Extração e deduplicação de produtos em streaming.
     2. Ordenação estrita em memória pela chave primária 'product_id' (crescente).
        Isso é um pré-requisito fundamental para a organização Sequencial-Indexada.
-    3. Empacotamento binário com tamanho fixo (97 bytes por registro):
+    3. Empacotamento binário com tamanho fixo (106 bytes por registro):
        - As strings são alinhadas à esquerda e preenchidas à direita com espaços ASCII (0x20).
        - O endianness é Little-Endian ('<'), padrão nativo da arquitetura x86_64 e do Go.
        - Cada registro termina com o caractere delimitador '\\n' (0x0A).
     4. Validação de integridade pós-gravação:
-       - O tamanho do arquivo em bytes DEVE ser múltiplo exato de 97.
+       - O tamanho do arquivo em bytes DEVE ser múltiplo exato de 106.
        - Leitura de teste do primeiro e último registro via Seek e unpack.
     """
     # 1. Obtenção dos produtos únicos
@@ -237,13 +241,15 @@ def gerar_produtos_dat(caminho_csv, caminho_dat, limite_linhas=None):
             brand_bytes = p["brand"].ljust(TAM_BRAND)[:TAM_BRAND].encode("ascii", "ignore")
             cat_bytes = p["category_code"].ljust(TAM_CATEGORY)[:TAM_CATEGORY].encode("ascii", "ignore")
 
-            # Empacota no formato binário de 97 bytes fixos
+            # Empacota no formato binário de 106 bytes fixos
             registro_binario = struct.pack(
                 FORMATO_PRODUTO,
                 p["product_id"],  # 8 bytes (int64)
                 brand_bytes,      # 32 bytes
                 cat_bytes,        # 48 bytes
                 p["price"],       # 8 bytes (float64)
+                -1,              # Elo: sem extensao
+                False,           # Exclusao logica desativada
                 b"\n"             # 1 byte
             )
             f_out.write(registro_binario)
@@ -260,7 +266,7 @@ def gerar_produtos_dat(caminho_csv, caminho_dat, limite_linhas=None):
     print(f"Tamanho total: {tamanho_total:,} bytes ({tamanho_total / (1024*1024):.2f} MB)")
     print(f"Total de registros gravados: {total_registros:,}")
     print(f"Tamanho por registro: {TAMANHO_REGISTRO_PROD} bytes fixos")
-    print(f"Integridade (resto % 97): {resto} (0 = Perfeito)")
+    print(f"Integridade (resto % 106): {resto} (0 = Perfeito)")
     print("=" * 55)
 
 
@@ -280,7 +286,7 @@ def gerar_acessos_dat(caminho_csv, caminho_dat, limite_linhas=None, tamanho_buff
        Como o CSV original não possui um identificador numérico único simples para cada
        evento, geramos uma chave incremental sequencial (1, 2, 3... N), garantindo
        que o arquivo de dados já seja gravado perfeitamente ordenado pela chave primária.
-    4. Formatação de 61 bytes fixos:
+    4. Formatação de 70 bytes fixos:
        - user_id e product_id convertidos para int64 (8 bytes cada).
        - event_type com padding de espaços até 16 bytes.
        - event_time padronizado para 20 bytes (ex: '2019-10-01 00:00:00 ').
@@ -326,7 +332,7 @@ def gerar_acessos_dat(caminho_csv, caminho_dat, limite_linhas=None, tamanho_buff
             data_hora_limpa = linha[idx_time].replace(" UTC", "").strip()
             data_hora = data_hora_limpa.ljust(TAM_EVENT_TIME)[:TAM_EVENT_TIME].encode("ascii", "ignore")
 
-            # Empacotamento de 61 bytes Little-Endian terminado com '\n'
+            # Empacotamento de 70 bytes Little-Endian terminado com '\n'
             registro_binario = struct.pack(
                 FORMATO_ACESSO,
                 event_id_seq,  # 8 bytes (int64)
@@ -334,6 +340,8 @@ def gerar_acessos_dat(caminho_csv, caminho_dat, limite_linhas=None, tamanho_buff
                 tipo_evento,   # 16 bytes
                 product_id,    # 8 bytes (int64)
                 data_hora,     # 20 bytes
+                -1,           # Elo: sem extensao
+                False,        # Exclusao logica desativada
                 b"\n"          # 1 byte
             )
             buffer_bytes.append(registro_binario)
@@ -370,7 +378,7 @@ def gerar_acessos_dat(caminho_csv, caminho_dat, limite_linhas=None, tamanho_buff
     print(f"Total de registros gravados: {total_registros:,}")
     print(f"Linhas descartadas (inválidas): {linhas_invalidas:,}")
     print(f"Tamanho por registro: {TAMANHO_REGISTRO_ACESSO} bytes fixos")
-    print(f"Integridade (resto % 61): {resto} (0 = Perfeito)")
+    print(f"Integridade (resto % 70): {resto} (0 = Perfeito)")
     print("=" * 55)
 
 

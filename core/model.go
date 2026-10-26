@@ -1,21 +1,25 @@
 package core
 
-// ProdutoRecord representa o registro de tamanho fixo em produtos.dat (97 bytes).
+// ProdutoRecord representa um produto de 106 bytes no arquivo principal ou extensão.
 type ProdutoRecord struct {
 	ProductID    int64
 	Brand        [BrandLen]byte
 	CategoryCode [CatLen]byte
 	Price        float64
+	Elo          int64 // Offset na extensão do bloco; EloNil encerra a cadeia.
+	Excluido     bool
 	Delimiter    byte
 }
 
-// AcessoRecord representa o registro de tamanho fixo em acessos.dat (61 bytes).
+// AcessoRecord representa um acesso de 70 bytes no arquivo principal ou extensão.
 type AcessoRecord struct {
 	EventID   int64
 	UserID    int64
 	EventType [TypeLen]byte
 	ProductID int64
 	EventTime [TimeLen]byte
+	Elo       int64
+	Excluido  bool
 	Delimiter byte
 }
 

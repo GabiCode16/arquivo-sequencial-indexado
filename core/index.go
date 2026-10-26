@@ -3,141 +3,178 @@ package core
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"os"
 )
 
-// BuscarProdutoPorID usa busca binária no índice parcial para localizar o
-// bloco de produtos e então percorre no máximo 1024 registros desse bloco.
-// Os dois arquivos devem estar abertos para leitura e permanecer sem alterações
-// durante a chamada.
-func BuscarProdutoPorID(arquivoProdutos, arquivoIndice *os.File, productID int64) (ProdutoRecord, bool, error) {
-	var produto ProdutoRecord
+type entradaIdx struct {
+	Chave  int64
+	Offset int64
+}
 
-	if arquivoProdutos == nil || arquivoIndice == nil {
-		return produto, false, fmt.Errorf("arquivos de produtos e índice são obrigatórios")
+// local identifica um registro ou o ponto de inserção na cadeia de extensão.
+type local struct {
+	bloco  int64
+	offset int64
+	ant    int64
+	ext    bool
+}
+
+// BuscarProdutoPorID consulta o bloco principal e sua extensão, ignorando excluídos.
+func BuscarProdutoPorID(dados, indice *os.File, id int64) (ProdutoRecord, bool, error) {
+	produto, _, achou, err := localizar(dados, indice, id, prodFmt)
+	if err != nil || !achou || produto.Excluido {
+		return ProdutoRecord{}, false, err
 	}
+	return produto, true, nil
+}
 
-	tamanhoProdutos, err := tamanhoArquivo(arquivoProdutos)
+// BuscarAcessoPorID consulta o bloco principal e sua extensão, ignorando excluídos.
+func BuscarAcessoPorID(dados, indice *os.File, id int64) (AcessoRecord, bool, error) {
+	acesso, _, achou, err := localizar(dados, indice, id, acessFmt)
+	if err != nil || !achou || acesso.Excluido {
+		return AcessoRecord{}, false, err
+	}
+	return acesso, true, nil
+}
+
+func conferirArquivos(dados, indice *os.File, size int) (int64, int64, error) {
+	if dados == nil || indice == nil {
+		return 0, 0, fmt.Errorf("arquivos de dados e índice são obrigatórios")
+	}
+	tamDados, err := tamanhoArquivo(dados)
 	if err != nil {
-		return produto, false, fmt.Errorf("consultar tamanho de produtos.dat: %w", err)
+		return 0, 0, err
 	}
-	tamanhoIndice, err := tamanhoArquivo(arquivoIndice)
+	tamIndice, err := tamanhoArquivo(indice)
 	if err != nil {
-		return produto, false, fmt.Errorf("consultar tamanho do índice de produtos: %w", err)
+		return 0, 0, err
+	}
+	if tamDados%int64(size) != 0 || tamIndice%IdxSize != 0 {
+		return 0, 0, fmt.Errorf("formato inválido; regenere os arquivos de dados e índices")
+	}
+	total, blocos := tamDados/int64(size), tamIndice/IdxSize
+	if esperado := (total + BlockSize - 1) / BlockSize; blocos != esperado {
+		return 0, 0, fmt.Errorf("índice desatualizado: contém %d entradas; esperadas %d", blocos, esperado)
+	}
+	return total, blocos, nil
+}
+
+func localizar[T any](dados, indice *os.File, id int64, f formato[T]) (T, local, bool, error) {
+	var vazio T
+	pos := local{offset: EloNil, ant: EloNil}
+	total, blocos, err := conferirArquivos(dados, indice, f.size)
+	if err != nil || total == 0 {
+		return vazio, pos, false, err
 	}
 
-	if tamanhoProdutos%ProdSize != 0 {
-		return produto, false, fmt.Errorf("produtos.dat tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoProdutos, ProdSize)
-	}
-	if tamanhoIndice%IdxSize != 0 {
-		return produto, false, fmt.Errorf("índice de produtos tem tamanho inválido: %d bytes não é múltiplo de %d", tamanhoIndice, IdxSize)
-	}
-
-	quantidadeProdutos := tamanhoProdutos / ProdSize
-	quantidadeIndices := tamanhoIndice / IdxSize
-	indicesEsperados := (quantidadeProdutos + BlockSize - 1) / BlockSize
-	if quantidadeIndices != indicesEsperados {
-		return produto, false, fmt.Errorf("índice de produtos desatualizado ou incompleto: contém %d entradas; esperadas %d", quantidadeIndices, indicesEsperados)
-	}
-	if quantidadeProdutos == 0 {
-		return produto, false, nil
-	}
-
-	// Encontra a última entrada cuja chave não ultrapassa a chave procurada.
-	var indiceBloco int64 = -1
-	for inicio, fim := int64(0), quantidadeIndices-1; inicio <= fim; {
+	// A primeira faixa também recebe chaves menores que a chave inicial da base.
+	bloco := int64(0)
+	for inicio, fim := int64(0), blocos-1; inicio <= fim; {
 		meio := inicio + (fim-inicio)/2
-		entrada, err := lerEntradaProdutoIndice(arquivoIndice, meio)
+		entrada, err := lerEntradaIndice(indice, meio)
 		if err != nil {
-			return produto, false, err
+			return vazio, pos, false, err
 		}
-		if entrada.Offset != meio*BlockSize*ProdSize {
-			return produto, false, fmt.Errorf("offset inválido na entrada %d do índice de produtos", meio)
+		if entrada.Offset != meio*BlockSize*int64(f.size) {
+			return vazio, pos, false, fmt.Errorf("offset inválido no índice, entrada %d", meio)
 		}
-		registroIndice, err := lerProdutoNoOffset(arquivoProdutos, entrada.Offset)
+		ancora, err := lerNoOffset(dados, entrada.Offset, f)
 		if err != nil {
-			return produto, false, fmt.Errorf("validar entrada %d do índice de produtos: %w", meio, err)
+			return vazio, pos, false, err
 		}
-		if registroIndice.ProductID != entrada.ProductID || registroIndice.Delimiter != Delim {
-			return produto, false, fmt.Errorf("entrada %d do índice de produtos não corresponde aos dados", meio)
+		if f.id(ancora) != entrada.Chave {
+			return vazio, pos, false, fmt.Errorf("entrada %d do índice não corresponde aos dados", meio)
 		}
-
-		if entrada.ProductID <= productID {
-			indiceBloco = meio
+		if entrada.Chave <= id {
+			bloco = meio
 			inicio = meio + 1
 		} else {
 			fim = meio - 1
 		}
 	}
-	if indiceBloco < 0 {
-		return produto, false, nil
-	}
 
-	entrada, err := lerEntradaProdutoIndice(arquivoIndice, indiceBloco)
+	pos.bloco = bloco
+	inicio := bloco * BlockSize * int64(f.size)
+	ancora, err := lerNoOffset(dados, inicio, f)
 	if err != nil {
-		return produto, false, err
+		return vazio, pos, false, err
 	}
-	registroInicial := entrada.Offset / ProdSize
-	produto, err = lerProdutoNoOffset(arquivoProdutos, entrada.Offset)
-	if err != nil {
-		return produto, false, fmt.Errorf("ler início do bloco de produtos %d: %w", indiceBloco, err)
+	limite := BlockSize
+	if restante := total - bloco*BlockSize; restante < limite {
+		limite = restante
 	}
-	if produto.ProductID != entrada.ProductID {
-		return ProdutoRecord{}, false, fmt.Errorf("índice de produtos desatualizado no bloco %d", indiceBloco)
-	}
-
-	quantidadeNoBloco := BlockSize
-	if restante := quantidadeProdutos - registroInicial; restante < quantidadeNoBloco {
-		quantidadeNoBloco = restante
-	}
-
 	var idAnterior int64
-	for i := int64(0); i < quantidadeNoBloco; i++ {
-		offset := entrada.Offset + i*ProdSize
-		produto, err = lerProdutoNoOffset(arquivoProdutos, offset)
+	for i := int64(0); i < limite; i++ {
+		offset := inicio + i*int64(f.size)
+		registro := ancora
+		if i > 0 {
+			registro, err = lerNoOffset(dados, offset, f)
+			if err != nil {
+				return vazio, pos, false, err
+			}
+		}
+		if i > 0 && f.id(registro) <= idAnterior {
+			return vazio, pos, false, fmt.Errorf("registros fora de ordem no bloco %d", bloco)
+		}
+		if f.id(registro) == id {
+			pos.offset = offset
+			return registro, pos, true, nil
+		}
+		if f.id(registro) > id {
+			break
+		}
+		idAnterior = f.id(registro)
+	}
+
+	// O Elo da âncora continua sendo usado mesmo quando ela está excluída.
+	pos.ext = true
+	proximo := f.elo(ancora)
+	if proximo == EloNil {
+		return vazio, pos, false, nil
+	}
+	ext, err := AbrirArquivo(caminhoExt(dados, bloco))
+	if err != nil {
+		return vazio, pos, false, fmt.Errorf("abrir extensão do bloco %d: %w", bloco, err)
+	}
+	defer ext.Close()
+	tamanho, err := tamanhoArquivo(ext)
+	if err != nil {
+		return vazio, pos, false, err
+	}
+	if tamanho%int64(f.size) != 0 {
+		return vazio, pos, false, fmt.Errorf("extensão do bloco %d tem tamanho inválido", bloco)
+	}
+	var chaveAnterior int64
+	for lidos := int64(0); proximo != EloNil; lidos++ {
+		if lidos >= tamanho/int64(f.size) || proximo < 0 || proximo%int64(f.size) != 0 || proximo >= tamanho {
+			return vazio, pos, false, fmt.Errorf("elo inválido ou ciclo na extensão do bloco %d", bloco)
+		}
+		registro, err := lerNoOffset(ext, proximo, f)
 		if err != nil {
-			return ProdutoRecord{}, false, fmt.Errorf("ler produto no offset %d: %w", offset, err)
+			return vazio, pos, false, err
 		}
-		if produto.Delimiter != Delim {
-			return ProdutoRecord{}, false, fmt.Errorf("delimitador inválido no registro de produto no offset %d", offset)
+		if lidos > 0 && f.id(registro) <= chaveAnterior {
+			return vazio, pos, false, fmt.Errorf("cadeia de extensão fora de ordem ou cíclica no bloco %d", bloco)
 		}
-		if i > 0 && produto.ProductID <= idAnterior {
-			return ProdutoRecord{}, false, fmt.Errorf("produtos fora de ordem no bloco iniciado no offset %d", entrada.Offset)
+		pos.offset = proximo
+		if f.id(registro) >= id {
+			return registro, pos, f.id(registro) == id, nil
 		}
-		if produto.ProductID == productID {
-			return produto, true, nil
-		}
-		if produto.ProductID > productID {
-			return ProdutoRecord{}, false, nil
-		}
-		idAnterior = produto.ProductID
+		chaveAnterior = f.id(registro)
+		pos.ant = proximo
+		proximo = f.elo(registro)
 	}
-
-	return ProdutoRecord{}, false, nil
+	pos.offset = EloNil
+	return vazio, pos, false, nil
 }
 
-func lerEntradaProdutoIndice(arquivo *os.File, posicao int64) (ProdutoIdx, error) {
-	var entrada ProdutoIdx
-	offset := posicao * IdxSize
-	if _, err := arquivo.Seek(offset, io.SeekStart); err != nil {
-		return entrada, fmt.Errorf("posicionar no índice de produtos no offset %d: %w", offset, err)
+func lerEntradaIndice(arquivo *os.File, posicao int64) (entradaIdx, error) {
+	var entrada entradaIdx
+	if _, err := SeekStart(arquivo, posicao*IdxSize); err != nil {
+		return entrada, err
 	}
-	if err := binary.Read(arquivo, binary.LittleEndian, &entrada); err != nil {
-		return entrada, fmt.Errorf("ler entrada %d do índice de produtos: %w", posicao, err)
-	}
-	return entrada, nil
-}
-
-func lerProdutoNoOffset(arquivo *os.File, offset int64) (ProdutoRecord, error) {
-	var produto ProdutoRecord
-	if _, err := arquivo.Seek(offset, io.SeekStart); err != nil {
-		return produto, fmt.Errorf("posicionar em produtos.dat no offset %d: %w", offset, err)
-	}
-	if err := binary.Read(arquivo, binary.LittleEndian, &produto); err != nil {
-		return produto, fmt.Errorf("ler registro de produtos no offset %d: %w", offset, err)
-	}
-	return produto, nil
+	err := binary.Read(arquivo, binary.LittleEndian, &entrada)
+	return entrada, err
 }
 
 func tamanhoArquivo(arquivo *os.File) (int64, error) {
