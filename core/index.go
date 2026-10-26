@@ -6,31 +6,15 @@ package core
 
 // BuscarProdutoPorID busca um produto pelo ID, preenchendo o ponteiro fornecido se encontrado e ativo.
 func BuscarProdutoPorID(id int64, p *ProdutoRecord) (bool, string) {
-	offset, msg := localizarProduto(id)
-	if offset == -1 {
+	achou, _, msg := LocalizarProduto(id, p)
+	if !achou {
 		return false, msg
 	}
 
-	arquivo, err := AbrirArquivo(ProdPath)
-	if err != nil {
-		return false, "[Erro] Falha ao abrir arquivo de produtos"
-	}
-	defer arquivo.Close()
-
-	if _, err := SeekStart(arquivo, offset); err != nil {
-		return false, "[Erro] Falha ao posicionar ponteiro no arquivo de produtos"
-	}
-
-	registro, err := LerLinhaProduto(arquivo)
-	if err != nil {
-		return false, "[Erro] Falha ao ler linha de produto"
-	}
-
-	if registro.Excluido {
+	if p.Excluido {
 		return false, "[Erro] Produto excluído"
 	}
 
-	*p = registro
 	return true, "[Sucesso] Produto encontrado"
 }
 
@@ -122,29 +106,29 @@ func localizarIdxProduto(id int64) (int64, string) {
 // LocalizarProduto localiza o offset exato de um produto no arquivo de dados.
 // Utiliza a pesquisa binária no índice para encontrar o bloco e, em seguida,
 // faz a varredura linear dentro daquele bloco principal.
-func localizarProduto(id int64) (int64, string) {
+func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 	// 1. Localiza o offset inicial do bloco usando a pesquisa binária no índice
 	offsetBloco, msg := localizarIdxProduto(id)
 	if offsetBloco == -1 {
-		return -1, msg
+		return false, -1, msg
 	}
 
 	// 2. Abre o arquivo de dados principais
 	dados, err := AbrirArquivo(ProdPath)
 	if err != nil {
-		return -1, "[Erro] Falha ao abrir arquivo de dados de produtos"
+		return false, -1, "[Erro] Falha ao abrir arquivo de dados de produtos"
 	}
 	defer dados.Close()
 
 	tamDados := ObterTamanhoArquivo(dados)
 	if tamDados < 0 || tamDados%int64(ProdSize) != 0 {
-		return -1, "[Erro] Tamanho do arquivo de dados inválido"
+		return false, -1, "[Erro] Tamanho do arquivo de dados inválido"
 	}
 	totalRegistros := tamDados / int64(ProdSize)
 
 	// Posiciona o cursor no início do bloco encontrado pelo índice
 	if _, err := SeekStart(dados, offsetBloco); err != nil {
-		return -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados"
+		return false, -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados"
 	}
 
 	// Calcula quantos registros faltam a partir do offset do bloco ou usa o tamanho completo do bloco
@@ -154,17 +138,18 @@ func localizarProduto(id int64) (int64, string) {
 
 	for registrosLidos < BlockSize && (offsetAtual/int64(ProdSize)) < totalRegistros {
 		if _, err := SeekStart(dados, offsetAtual); err != nil {
-			return -1, "[Erro] Falha ao ler registro no bloco"
+			return false, -1, "[Erro] Falha ao ler registro no bloco"
 		}
 
 		registro, err := LerLinhaProduto(dados)
 		if err != nil {
-			return -1, "[Erro] Falha ao ler linha de produto"
+			return false, -1, "[Erro] Falha ao ler linha de produto"
 		}
 
 		// Se achou o ID exato
 		if registro.ProductID == id {
-			return offsetAtual, "[Sucesso] Produto localizado no bloco de dados"
+			*p = registro
+			return true, offsetAtual, "[Sucesso] Produto localizado no bloco de dados"
 		}
 
 		// Como os registros dentro do bloco estão ordenados, se passarmos de ID, ele não existe neste bloco
@@ -176,7 +161,7 @@ func localizarProduto(id int64) (int64, string) {
 		registrosLidos++
 	}
 
-	return -1, "[Erro] Produto não encontrado no bloco de dados principal"
+	return false, -1, "[Erro] Produto não encontrado no bloco de dados principal"
 }
 
 // localizarIdxAcesso realiza a pesquisa binária diretamente no arquivo de índice de acessos.
