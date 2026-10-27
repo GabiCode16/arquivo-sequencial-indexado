@@ -105,12 +105,18 @@ func localizarIdxProduto(id int64) (int64, string) {
 
 // LocalizarProduto localiza o offset exato de um produto no arquivo de dados.
 // Utiliza a pesquisa binária no índice para encontrar o bloco e, em seguida,
-// faz a varredura linear dentro daquele bloco principal.
+// percorre o bloco principal e sua cadeia de extensão.
+// Quando encontrado, retorna o offset principal ou -(offsetExtensao + 2).
+// Quando ausente, retorna o offset inicial do bloco; em caso de erro, retorna -1.
 func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 	// 1. Localiza o offset inicial do bloco usando a pesquisa binária no índice
 	offsetBloco, msg := localizarIdxProduto(id)
 	if offsetBloco == -1 {
-		return false, -1, msg
+		if msg != "[Sucesso] Produto encontrado" {
+			return false, -1, msg
+		}
+		// Uma chave menor que a primeira do índice pertence à extensão do primeiro bloco.
+		offsetBloco = 0
 	}
 
 	// 2. Abre o arquivo de dados principais
@@ -125,6 +131,9 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 		return false, -1, "[Erro] Tamanho do arquivo de dados inválido"
 	}
 	totalRegistros := tamDados / int64(ProdSize)
+	if offsetBloco < 0 || offsetBloco >= tamDados || offsetBloco%(BlockSize*int64(ProdSize)) != 0 {
+		return false, -1, "[Erro] Offset de bloco inválido no índice de produtos"
+	}
 
 	// Posiciona o cursor no início do bloco encontrado pelo índice
 	if _, err := SeekStart(dados, offsetBloco); err != nil {
@@ -135,6 +144,7 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 	// Como cada bloco possui BlockSize registros, limitamos a varredura ao final do bloco ou ao fim do arquivo.
 	offsetAtual := offsetBloco
 	registrosLidos := int64(0)
+	var elo int64 = -1
 
 	for registrosLidos < BlockSize && (offsetAtual/int64(ProdSize)) < totalRegistros {
 		if _, err := SeekStart(dados, offsetAtual); err != nil {
@@ -144,6 +154,9 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 		registro, err := LerLinhaProduto(dados)
 		if err != nil {
 			return false, -1, "[Erro] Falha ao ler linha de produto"
+		}
+		if registrosLidos == 0 {
+			elo = registro.Elo
 		}
 
 		// Se achou o ID exato
@@ -161,7 +174,38 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 		registrosLidos++
 	}
 
-	return false, -1, "[Erro] Produto não encontrado no bloco de dados principal"
+	if elo != -1 {
+		ext, err := AbrirArquivo(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(ProdSize))))
+		if err != nil {
+			return false, -1, "[Erro] Falha ao abrir arquivo de extensão de produtos"
+		}
+		defer ext.Close()
+
+		tamExt := ObterTamanhoArquivo(ext)
+		if tamExt < 0 || tamExt%int64(ProdSize) != 0 {
+			return false, -1, "[Erro] Tamanho do arquivo de extensão inválido"
+		}
+		// Limitar as leituras à quantidade de registros também impede ciclos nos elos.
+		for lidos := int64(0); elo != -1; lidos++ {
+			if elo < 0 || elo%int64(ProdSize) != 0 || elo >= tamExt || lidos >= tamExt/int64(ProdSize) {
+				return false, -1, "[Erro] Elo inválido na extensão de produtos"
+			}
+			if _, err := SeekStart(ext, elo); err != nil {
+				return false, -1, "[Erro] Falha ao posicionar ponteiro na extensão de produtos"
+			}
+			registro, err := LerLinhaProduto(ext)
+			if err != nil {
+				return false, -1, "[Erro] Falha ao ler produto na extensão"
+			}
+			if registro.ProductID == id {
+				*p = registro
+				return true, -(elo + 2), "[Sucesso] Produto localizado na extensão"
+			}
+			elo = registro.Elo
+		}
+	}
+
+	return false, offsetBloco, "[Sucesso] Produto não encontrado"
 }
 
 // localizarIdxAcesso realiza a pesquisa binária diretamente no arquivo de índice de acessos.
