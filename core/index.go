@@ -20,31 +20,15 @@ func BuscarProdutoPorID(id int64, p *ProdutoRecord) (bool, string) {
 
 // BuscarAcessoPorID busca um acesso pelo ID, preenchendo o ponteiro fornecido se encontrado e ativo.
 func BuscarAcessoPorID(id int64, a *AcessoRecord) (bool, string) {
-	offset, msg := localizarAcesso(id)
-	if offset == -1 {
+	achou, _, msg := LocalizarAcesso(id, a)
+	if !achou {
 		return false, msg
 	}
 
-	arquivo, err := AbrirArquivo(AcessPath)
-	if err != nil {
-		return false, "[Erro] Falha ao abrir arquivo de acessos"
-	}
-	defer arquivo.Close()
-
-	if _, err := SeekStart(arquivo, offset); err != nil {
-		return false, "[Erro] Falha ao posicionar ponteiro no arquivo de acessos"
-	}
-
-	registro, err := LerLinhaAcesso(arquivo)
-	if err != nil {
-		return false, "[Erro] Falha ao ler linha de acesso"
-	}
-
-	if registro.Excluido {
+	if a.Excluido {
 		return false, "[Erro] Acesso excluído"
 	}
 
-	*a = registro
 	return true, "[Sucesso] Acesso encontrado"
 }
 
@@ -261,51 +245,67 @@ func localizarIdxAcesso(id int64) (int64, string) {
 
 // LocalizarAcesso localiza o offset exato de um acesso no arquivo de dados.
 // Utiliza a pesquisa binária no índice para encontrar o bloco e, em seguida,
-// faz a varredura linear dentro daquele bloco principal.
-func localizarAcesso(id int64) (int64, string) {
+// percorre o bloco principal e sua cadeia de extensão.
+// Quando encontrado, retorna o offset principal ou -(offsetExtensao + 2).
+// Quando ausente, retorna o offset inicial do bloco; em caso de erro, retorna -1.
+func LocalizarAcesso(id int64, a *AcessoRecord) (bool, int64, string) {
 	// 1. Localiza o offset inicial do bloco usando a pesquisa binária no índice
 	offsetBloco, msg := localizarIdxAcesso(id)
 	if offsetBloco == -1 {
-		return -1, msg
+		if msg != "[Sucesso] Acesso encontrado" {
+			return false, -1, msg
+		}
+		// Uma chave menor que a primeira do índice pertence à extensão do primeiro bloco.
+		offsetBloco = 0
 	}
 
-	// 2. Abre o arquivo de dados principais de acessos
+	// 2. Abre o arquivo de dados principais
 	dados, err := AbrirArquivo(AcessPath)
 	if err != nil {
-		return -1, "[Erro] Falha ao abrir arquivo de dados de acessos"
+		return false, -1, "[Erro] Falha ao abrir arquivo de dados de acessos"
 	}
 	defer dados.Close()
 
 	tamDados := ObterTamanhoArquivo(dados)
 	if tamDados < 0 || tamDados%int64(AcessSize) != 0 {
-		return -1, "[Erro] Tamanho do arquivo de dados de acessos inválido"
+		return false, -1, "[Erro] Tamanho do arquivo de dados inválido"
 	}
 	totalRegistros := tamDados / int64(AcessSize)
+	if offsetBloco < 0 || offsetBloco >= tamDados || offsetBloco%(BlockSize*int64(AcessSize)) != 0 {
+		return false, -1, "[Erro] Offset de bloco inválido no índice de acessos"
+	}
 
 	// Posiciona o cursor no início do bloco encontrado pelo índice
 	if _, err := SeekStart(dados, offsetBloco); err != nil {
-		return -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados de acessos"
+		return false, -1, "[Erro] Falha ao posicionar ponteiro no bloco de dados"
 	}
 
+	// Calcula quantos registros faltam a partir do offset do bloco ou usa o tamanho completo do bloco
+	// Como cada bloco possui BlockSize registros, limitamos a varredura ao final do bloco ou ao fim do arquivo.
 	offsetAtual := offsetBloco
 	registrosLidos := int64(0)
+	var elo int64 = -1
 
 	for registrosLidos < BlockSize && (offsetAtual/int64(AcessSize)) < totalRegistros {
 		if _, err := SeekStart(dados, offsetAtual); err != nil {
-			return -1, "[Erro] Falha ao ler registro no bloco de acessos"
+			return false, -1, "[Erro] Falha ao ler registro no bloco"
 		}
 
 		registro, err := LerLinhaAcesso(dados)
 		if err != nil {
-			return -1, "[Erro] Falha ao ler linha de acesso"
+			return false, -1, "[Erro] Falha ao ler linha de acesso"
+		}
+		if registrosLidos == 0 {
+			elo = registro.Elo
 		}
 
 		// Se achou o ID exato
 		if registro.EventID == id {
-			return offsetAtual, "[Sucesso] Acesso localizado no bloco de dados"
+			*a = registro
+			return true, offsetAtual, "[Sucesso] Acesso localizado no bloco de dados"
 		}
 
-		// Como os registros dentro do bloco estão ordenados, se passarmos do ID, ele não existe neste bloco
+		// Como os registros dentro do bloco estão ordenados, se passarmos de ID, ele não existe neste bloco
 		if registro.EventID > id {
 			break
 		}
@@ -314,5 +314,36 @@ func localizarAcesso(id int64) (int64, string) {
 		registrosLidos++
 	}
 
-	return -1, "[Erro] Acesso não encontrado no bloco de dados principal"
+	if elo != -1 {
+		ext, err := AbrirArquivo(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(AcessSize))))
+		if err != nil {
+			return false, -1, "[Erro] Falha ao abrir arquivo de extensão de acessos"
+		}
+		defer ext.Close()
+
+		tamExt := ObterTamanhoArquivo(ext)
+		if tamExt < 0 || tamExt%int64(AcessSize) != 0 {
+			return false, -1, "[Erro] Tamanho do arquivo de extensão inválido"
+		}
+		// Limitar as leituras à quantidade de registros também impede ciclos nos elos.
+		for lidos := int64(0); elo != -1; lidos++ {
+			if elo < 0 || elo%int64(AcessSize) != 0 || elo >= tamExt || lidos >= tamExt/int64(AcessSize) {
+				return false, -1, "[Erro] Elo inválido na extensão de acessos"
+			}
+			if _, err := SeekStart(ext, elo); err != nil {
+				return false, -1, "[Erro] Falha ao posicionar ponteiro na extensão de acessos"
+			}
+			registro, err := LerLinhaAcesso(ext)
+			if err != nil {
+				return false, -1, "[Erro] Falha ao ler acesso na extensão"
+			}
+			if registro.EventID == id {
+				*a = registro
+				return true, -(elo + 2), "[Sucesso] Acesso localizado na extensão"
+			}
+			elo = registro.Elo
+		}
+	}
+
+	return false, offsetBloco, "[Sucesso] Acesso não encontrado"
 }
