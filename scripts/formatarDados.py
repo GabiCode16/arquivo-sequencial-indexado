@@ -222,7 +222,6 @@ def gerar_produtos_dat(caminho_csv, caminho_dat, limite_linhas=None):
        - Cada registro termina com o caractere delimitador '\\n' (0x0A).
     4. Validação de integridade pós-gravação:
        - O tamanho do arquivo em bytes DEVE ser múltiplo exato de 106.
-       - Leitura de teste do primeiro e último registro via Seek e unpack.
     """
     # 1. Obtenção dos produtos únicos
     produtos = extrair_produtos_unicos(caminho_csv, limite_linhas)

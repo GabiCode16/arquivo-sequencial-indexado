@@ -38,7 +38,7 @@ func BuscarAcessoPorID(id int64, a *AcessoRecord) (bool, string) {
 
 // localizarIdxProduto realiza a pesquisa binária diretamente no arquivo de índice de produtos.
 func localizarIdxProduto(id int64) (int64, string) {
-	indice, err := AbrirArquivo(ProdIdxPath)
+	indice, err := AbrirArquivo(ProdIdxPath, ModR, false)
 	if err != nil {
 		return -1, "[Erro] Falha ao abrir arquivo de índice"
 	}
@@ -65,7 +65,7 @@ func localizarIdxProduto(id int64) (int64, string) {
 			return -1, "[Erro] Falha ao buscar no arquivo de índice"
 		}
 
-		entrada, err := LerLinhaProdutoIdx(indice)
+		entrada, err := LerLinhaProdutoIdx(indice.Reader())
 		if err != nil {
 			return -1, "[Erro] Falha ao ler entrada do arquivo de índice"
 		}
@@ -104,7 +104,7 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 	}
 
 	// 2. Abre o arquivo de dados principais
-	dados, err := AbrirArquivo(ProdPath)
+	dados, err := AbrirArquivo(ProdPath, ModR, false)
 	if err != nil {
 		return false, -1, "[Erro] Falha ao abrir arquivo de dados de produtos"
 	}
@@ -135,7 +135,7 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 			return false, -1, "[Erro] Falha ao ler registro no bloco"
 		}
 
-		registro, err := LerLinhaProduto(dados)
+		registro, err := LerLinhaProduto(dados.Reader())
 		if err != nil {
 			return false, -1, "[Erro] Falha ao ler linha de produto"
 		}
@@ -159,7 +159,10 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 	}
 
 	if elo != -1 {
-		ext, err := AbrirArquivo(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(ProdSize))))
+		ext, err := AbrirArquivo(
+			CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(ProdSize))),
+			ModR, false,
+		)
 		if err != nil {
 			return false, -1, "[Erro] Falha ao abrir arquivo de extensão de produtos"
 		}
@@ -177,7 +180,7 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 			if _, err := SeekStart(ext, elo); err != nil {
 				return false, -1, "[Erro] Falha ao posicionar ponteiro na extensão de produtos"
 			}
-			registro, err := LerLinhaProduto(ext)
+			registro, err := LerLinhaProduto(ext.Reader())
 			if err != nil {
 				return false, -1, "[Erro] Falha ao ler produto na extensão"
 			}
@@ -194,7 +197,7 @@ func LocalizarProduto(id int64, p *ProdutoRecord) (bool, int64, string) {
 
 // localizarIdxAcesso realiza a pesquisa binária diretamente no arquivo de índice de acessos.
 func localizarIdxAcesso(id int64) (int64, string) {
-	indice, err := AbrirArquivo(AcessIdxPath)
+	indice, err := AbrirArquivo(AcessIdxPath, ModR, false)
 	if err != nil {
 		return -1, "[Erro] Falha ao abrir arquivo de índice de acessos"
 	}
@@ -221,7 +224,7 @@ func localizarIdxAcesso(id int64) (int64, string) {
 			return -1, "[Erro] Falha ao buscar no arquivo de índice de acessos"
 		}
 
-		entrada, err := LerLinhaAcessoIdx(indice)
+		entrada, err := LerLinhaAcessoIdx(indice.Reader())
 		if err != nil {
 			return -1, "[Erro] Falha ao ler entrada do arquivo de índice de acessos"
 		}
@@ -260,7 +263,7 @@ func LocalizarAcesso(id int64, a *AcessoRecord) (bool, int64, string) {
 	}
 
 	// 2. Abre o arquivo de dados principais
-	dados, err := AbrirArquivo(AcessPath)
+	dados, err := AbrirArquivo(AcessPath, ModR, false)
 	if err != nil {
 		return false, -1, "[Erro] Falha ao abrir arquivo de dados de acessos"
 	}
@@ -291,7 +294,7 @@ func LocalizarAcesso(id int64, a *AcessoRecord) (bool, int64, string) {
 			return false, -1, "[Erro] Falha ao ler registro no bloco"
 		}
 
-		registro, err := LerLinhaAcesso(dados)
+		registro, err := LerLinhaAcesso(dados.Reader())
 		if err != nil {
 			return false, -1, "[Erro] Falha ao ler linha de acesso"
 		}
@@ -315,7 +318,10 @@ func LocalizarAcesso(id int64, a *AcessoRecord) (bool, int64, string) {
 	}
 
 	if elo != -1 {
-		ext, err := AbrirArquivo(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(AcessSize))))
+		ext, err := AbrirArquivo(
+			CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(AcessSize))),
+			ModR, false,
+		)
 		if err != nil {
 			return false, -1, "[Erro] Falha ao abrir arquivo de extensão de acessos"
 		}
@@ -333,7 +339,7 @@ func LocalizarAcesso(id int64, a *AcessoRecord) (bool, int64, string) {
 			if _, err := SeekStart(ext, elo); err != nil {
 				return false, -1, "[Erro] Falha ao posicionar ponteiro na extensão de acessos"
 			}
-			registro, err := LerLinhaAcesso(ext)
+			registro, err := LerLinhaAcesso(ext.Reader())
 			if err != nil {
 				return false, -1, "[Erro] Falha ao ler acesso na extensão"
 			}

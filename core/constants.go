@@ -2,35 +2,31 @@ package core
 
 // Caminhos padrão dos arquivos de dados e índices.
 const (
-	ProdPath     = "dados/produtos.dat"
-	AcessPath    = "dados/acessos.dat"
-	ProdIdxPath  = "dados/indice_prod.idx"
-	AcessIdxPath = "dados/indice_acess.idx"
+	ProdPath     string = "dados/produtos.dat"
+	AcessPath    string = "dados/acessos.dat"
+	ProdIdxPath  string = "dados/indice_prod.idx"
+	AcessIdxPath string = "dados/indice_acess.idx"
 )
 
 // Tamanhos da representação binária em disco e dos campos de texto.
 const (
-	ProdSize        = 106
-	AcessSize       = 70
-	IdxSize         = 16
+	ProdSize  int64 = 106
+	AcessSize int64 = 70
+	IdxSize   int64 = 16
 	BlockSize int64 = 1024
-	BrandLen        = 32
-	CatLen          = 48
-	TypeLen         = 16
-	TimeLen         = 20
-	Delim           = '\n'
-	EloSize         = 8
-	FlagSize        = 1
-	DelimSize       = 1
-	FlagOn    byte  = 1
-	Perm            = 0600
+	BrandLen  int64 = 32
+	CatLen    int64 = 48
+	TypeLen   int64 = 16
+	TimeLen   int64 = 20
+	EloSize   int64 = 8
+	Perm      int64 = 0600
 )
 
 // Buffer de leitura e intervalos de progresso do validador.
 const (
-	BufSize      = 4 * 1024 * 1024
-	ProdStep     = 10_000
-	AcessStep    = 1_000_000
-	ProdIdxStep  = 10
-	AcessIdxStep = 10_000
+	BufSize      int64 = 4 * 1024 * 1024
+	ProdStep     int64 = 10_000
+	AcessStep    int64 = 1_000_000
+	ProdIdxStep  int64 = 10
+	AcessIdxStep int64 = 10_000
 )

@@ -1,4 +1,4 @@
-# Caches e arquivos temporários Python
+# Cache e arquivos temporários Python
 __pycache__/
 *.py[cod]
 

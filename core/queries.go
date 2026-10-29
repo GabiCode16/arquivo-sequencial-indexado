@@ -1,14 +1,11 @@
 package core
 
 import (
-	"encoding/binary"
-	"errors"
 	"fmt"
-	"os"
 )
 
 // InserirProduto insere um produto na organização indexado-sequencial.
-func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
+func InserirProduto(dados, indice *File, produto ProdutoRecord) string {
 	tamDados := ObterTamanhoArquivo(dados)
 	tamIndice := ObterTamanhoArquivo(indice)
 	if tamDados < 0 || tamDados%int64(ProdSize) != 0 {
@@ -20,21 +17,22 @@ func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
 	}
 
 	produto.Excluido = false
-	produto.Delimiter = Delim
+	produto.Delimiter = '\n'
+
 	if tamDados == 0 {
 		produto.Elo = -1
 		if _, err := SeekStart(dados, 0); err != nil {
 			return "[Erro] " + err.Error()
 		}
 		if err := GravarProduto(dados, produto); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0)).Error()
+			return "[Erro] " + err.Error()
 		}
 		if _, err := SeekStart(indice, 0); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0)).Error()
+			return "[Erro] " + err.Error()
 		}
 		entrada := ProdutoIdx{ProductID: produto.ProductID, Offset: 0}
-		if err := binary.Write(indice, binary.LittleEndian, &entrada); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0), indice.Truncate(0)).Error()
+		if err := GravarProdutoIdx(indice, entrada); err != nil {
+			return "[Erro] " + err.Error()
 		}
 		return "[Sucesso] Produto inserido"
 	}
@@ -52,7 +50,7 @@ func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
 		// Reativação de registro excluído
 		produto.Elo = anterior.Elo
 		produto.Excluido = false
-		produto.Delimiter = Delim
+		produto.Delimiter = '\n'
 
 		arquivo := dados
 		if pos < -1 {
@@ -63,7 +61,10 @@ func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
 				}
 				offsetBloco = 0
 			}
-			ext, err := os.OpenFile(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(ProdSize))), os.O_RDWR, Perm)
+			ext, err := AbrirArquivo(
+				CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(ProdSize))),
+				ModRW, false,
+			)
 			if err != nil {
 				return "[Erro] " + err.Error()
 			}
@@ -87,11 +88,15 @@ func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
 	if _, err := SeekStart(dados, pos); err != nil {
 		return "[Erro] " + err.Error()
 	}
-	anterior, err := LerLinhaProduto(dados)
+	anterior, err := LerLinhaProduto(dados.Reader())
 	if err != nil {
 		return "[Erro] " + err.Error()
 	}
-	ext, err := os.OpenFile(CaminhoExtensao(dados.Name(), pos/(BlockSize*int64(ProdSize))), os.O_RDWR|os.O_CREATE, Perm)
+	ext, err := AbrirArquivo(
+		CaminhoExtensao(dados.Name(), pos/(BlockSize*int64(ProdSize))),
+		ModRW,
+		true,
+	)
 	if err != nil {
 		return "[Erro] " + err.Error()
 	}
@@ -106,36 +111,35 @@ func InserirProduto(dados, indice *os.File, produto ProdutoRecord) string {
 		return "[Erro] " + err.Error()
 	}
 	if err := GravarProduto(ext, produto); err != nil {
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+		return "[Erro] " + err.Error()
 	}
-	// Atualiza somente o elo, preservando os demais campos do registro principal.
-	if _, err := SeekStart(dados, pos+int64(ProdSize-EloSize-FlagSize-DelimSize)); err != nil {
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+	// Atualiza o elo lendo a struct inteira, modificando o campo e regravando-a
+	if _, err := SeekStart(dados, pos); err != nil {
+		return "[Erro] " + err.Error()
 	}
-	if err := binary.Write(dados, binary.LittleEndian, tamExt); err != nil {
-		if _, restaurar := SeekStart(dados, pos+int64(ProdSize-EloSize-FlagSize-DelimSize)); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		var eloAtual int64
-		if leitura := binary.Read(dados, binary.LittleEndian, &eloAtual); leitura != nil {
-			return "[Erro] " + errors.Join(err, leitura).Error()
-		}
-		if eloAtual == anterior.Elo {
-			return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
-		}
-		if _, restaurar := SeekStart(dados, pos+int64(ProdSize-EloSize-FlagSize-DelimSize)); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		if restaurar := binary.Write(dados, binary.LittleEndian, anterior.Elo); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+
+	// Lê o registro principal atual
+	registro, err := LerLinhaProduto(dados.Reader())
+	if err != nil {
+		return "[Erro] " + err.Error()
 	}
+
+	// Atualiza o elo apontando para a nova extensão
+	registro.Elo = tamExt
+
+	// Retorna para a posição do registro e grava a struct inteira atualizada
+	if _, err := SeekStart(dados, pos); err != nil {
+		return "[Erro] " + err.Error()
+	}
+	if err := GravarProduto(dados, registro); err != nil {
+		return "[Erro] " + err.Error()
+	}
+
 	return "[Sucesso] Produto inserido"
 }
 
 // InserirAcesso insere um acesso na organização indexado-sequencial.
-func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
+func InserirAcesso(dados, indice *File, acesso AcessoRecord) string {
 	tamDados := ObterTamanhoArquivo(dados)
 	tamIndice := ObterTamanhoArquivo(indice)
 	if tamDados < 0 || tamDados%int64(AcessSize) != 0 {
@@ -147,21 +151,21 @@ func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
 	}
 
 	acesso.Excluido = false
-	acesso.Delimiter = Delim
+	acesso.Delimiter = '\n'
 	if tamDados == 0 {
 		acesso.Elo = -1
 		if _, err := SeekStart(dados, 0); err != nil {
 			return "[Erro] " + err.Error()
 		}
 		if err := GravarAcesso(dados, acesso); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0)).Error()
+			return "[Erro] " + err.Error()
 		}
 		if _, err := SeekStart(indice, 0); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0)).Error()
+			return "[Erro] " + err.Error()
 		}
 		entrada := AcessoIdx{EventID: acesso.EventID, Offset: 0}
-		if err := binary.Write(indice, binary.LittleEndian, &entrada); err != nil {
-			return "[Erro] " + errors.Join(err, dados.Truncate(0), indice.Truncate(0)).Error()
+		if err := GravarAcessoIdx(indice, entrada); err != nil {
+			return "[Erro] " + err.Error()
 		}
 		return "[Sucesso] Acesso inserido"
 	}
@@ -179,7 +183,7 @@ func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
 		// Reativação de registro excluído
 		acesso.Elo = anterior.Elo
 		acesso.Excluido = false
-		acesso.Delimiter = Delim
+		acesso.Delimiter = '\n'
 
 		arquivo := dados
 		if pos < -1 {
@@ -190,7 +194,10 @@ func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
 				}
 				offsetBloco = 0
 			}
-			ext, err := os.OpenFile(CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(AcessSize))), os.O_RDWR, Perm)
+			ext, err := AbrirArquivo(
+				CaminhoExtensao(dados.Name(), offsetBloco/(BlockSize*int64(AcessSize))),
+				ModRW, false,
+			)
 			if err != nil {
 				return "[Erro] " + err.Error()
 			}
@@ -214,11 +221,14 @@ func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
 	if _, err := SeekStart(dados, pos); err != nil {
 		return "[Erro] " + err.Error()
 	}
-	anterior, err := LerLinhaAcesso(dados)
+	anterior, err := LerLinhaAcesso(dados.Reader())
 	if err != nil {
 		return "[Erro] " + err.Error()
 	}
-	ext, err := os.OpenFile(CaminhoExtensao(dados.Name(), pos/(BlockSize*int64(AcessSize))), os.O_RDWR|os.O_CREATE, Perm)
+	ext, err := AbrirArquivo(
+		CaminhoExtensao(dados.Name(), pos/(BlockSize*int64(AcessSize))),
+		ModRW, true,
+	)
 	if err != nil {
 		return "[Erro] " + err.Error()
 	}
@@ -233,68 +243,57 @@ func InserirAcesso(dados, indice *os.File, acesso AcessoRecord) string {
 		return "[Erro] " + err.Error()
 	}
 	if err := GravarAcesso(ext, acesso); err != nil {
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+		return "[Erro] " + err.Error()
 	}
-	// Atualiza somente o elo, preservando os demais campos do registro principal.
-	if _, err := SeekStart(dados, pos+int64(AcessSize-EloSize-FlagSize-DelimSize)); err != nil {
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+	// Atualiza o elo lendo a struct inteira, modificando o campo e regravando-a
+	if _, err := SeekStart(dados, pos); err != nil {
+		return "[Erro] " + err.Error()
 	}
-	if err := binary.Write(dados, binary.LittleEndian, tamExt); err != nil {
-		if _, restaurar := SeekStart(dados, pos+int64(AcessSize-EloSize-FlagSize-DelimSize)); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		var eloAtual int64
-		if leitura := binary.Read(dados, binary.LittleEndian, &eloAtual); leitura != nil {
-			return "[Erro] " + errors.Join(err, leitura).Error()
-		}
-		if eloAtual == anterior.Elo {
-			return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
-		}
-		if _, restaurar := SeekStart(dados, pos+int64(AcessSize-EloSize-FlagSize-DelimSize)); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		if restaurar := binary.Write(dados, binary.LittleEndian, anterior.Elo); restaurar != nil {
-			return "[Erro] " + errors.Join(err, restaurar).Error()
-		}
-		return "[Erro] " + errors.Join(err, ext.Truncate(tamExt)).Error()
+
+	// Lê o registro principal atual
+	registro, err := LerLinhaAcesso(dados.Reader())
+	if err != nil {
+		return "[Erro] " + err.Error()
 	}
+
+	// Atualiza o elo apontando para a nova extensão
+	registro.Elo = tamExt
+
+	// Retorna para a posição do registro e grava a struct inteira atualizada
+	if _, err := SeekStart(dados, pos); err != nil {
+		return "[Erro] " + err.Error()
+	}
+	if err := GravarAcesso(dados, registro); err != nil {
+		return "[Erro] " + err.Error()
+	}
+
 	return "[Sucesso] Acesso inserido"
 }
 
 // RemoverProduto marca o registro do produto como logicamente excluído.
-func RemoverProduto(dados, indice *os.File, id int64) (bool, error) {
-	registro, pos, achou, err := LocalizarProduto(dados, indice, id)
-	if err != nil || !achou || registro.Excluido {
-		return false, err
+func RemoverProduto(dados *File, id int64) (bool, string) {
+	var registro ProdutoRecord
+	achou, _, msg := LocalizarProduto(id, &registro)
+	if !achou || registro.Excluido {
+		return false, msg
 	}
-	arquivo, err := abrirLocal(dados, pos)
-	if err != nil {
-		return false, err
+	registro.Excluido = true
+	if err := GravarProduto(dados, registro); err != nil {
+		return false, "[Erro] " + err.Error()
 	}
-	if pos.NaExt {
-		defer arquivo.Close()
-	}
-	if err := MarcarExcluido(arquivo, pos.Offset, ProdSize); err != nil {
-		return false, err
-	}
-	return true, nil
+	return true, "[Sucesso] Produto removido"
 }
 
 // RemoverAcesso marca o registro de acesso como logicamente excluído.
-func RemoverAcesso(dados, indice *os.File, id int64) (bool, error) {
-	registro, pos, achou, err := LocalizarAcesso(dados, indice, id)
-	if err != nil || !achou || registro.Excluido {
-		return false, err
+func RemoverAcesso(dados *File, id int64) (bool, string) {
+	var registro AcessoRecord
+	achou, _, msg := LocalizarAcesso(id, &registro)
+	if !achou || registro.Excluido {
+		return false, msg
 	}
-	arquivo, err := abrirLocal(dados, pos)
-	if err != nil {
-		return false, err
+	registro.Excluido = true
+	if err := GravarAcesso(dados, registro); err != nil {
+		return false, "[Erro] " + err.Error()
 	}
-	if pos.NaExt {
-		defer arquivo.Close()
-	}
-	if err := MarcarExcluido(arquivo, pos.Offset, AcessSize); err != nil {
-		return false, err
-	}
-	return true, nil
+	return true, "[Sucesso] Acesso removido"
 }

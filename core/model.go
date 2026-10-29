@@ -6,7 +6,7 @@ type ProdutoRecord struct {
 	Brand        [BrandLen]byte
 	CategoryCode [CatLen]byte
 	Price        float64
-	Elo          int64 // Offset na extensão do bloco; EloNil encerra a cadeia.
+	Elo          int64 // Offset na extensão do bloco
 	Excluido     bool
 	Delimiter    byte
 }
@@ -18,7 +18,7 @@ type AcessoRecord struct {
 	EventType [TypeLen]byte
 	ProductID int64
 	EventTime [TimeLen]byte
-	Elo       int64
+	Elo       int64 // Offset na extensão do bloco
 	Excluido  bool
 	Delimiter byte
 }
