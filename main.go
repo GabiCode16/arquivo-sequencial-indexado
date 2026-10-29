@@ -9,24 +9,27 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Opções de navegação do menu e configurações de formatação do console.
 const (
-	optProd      = "1"
-	optInsProd   = "2"
-	optRemProd   = "3"
-	optInsAcess  = "4"
-	optRemAcess  = "5"
-	optListProd  = "6"
-	optListAcess = "7"
-	optAcess     = "8"
-	optProdAcess = "9"
-	optExit      = "0"
-	idBase       = 10
-	idBits       = 64
-	floatBits    = 64
-	textPad      = " \x00"
+	optProd             = "1"
+	optInsProd          = "2"
+	optRemProd          = "3"
+	optInsAcess         = "4"
+	optRemAcess         = "5"
+	optListProd         = "6"
+	optListAcess        = "7"
+	optAcess            = "8"
+	optProdAcess        = "9"
+	optBuscaDiretaProd  = "10"
+	optBuscaDiretaAcess = "11"
+	optExit             = "0"
+	idBase              = 10
+	idBits              = 64
+	floatBits           = 64
+	textPad             = " \x00"
 )
 
 func main() {
@@ -43,6 +46,8 @@ func main() {
 		fmt.Printf("%s - Exibir acessos\n", optListAcess)
 		fmt.Printf("%s - Consultar acesso por ID\n", optAcess)
 		fmt.Printf("%s - Consultar produto associado a acesso\n", optProdAcess)
+		fmt.Printf("%s - Pesquisa binária direta de produto\n", optBuscaDiretaProd)
+		fmt.Printf("%s - Pesquisa binária direta de acesso\n", optBuscaDiretaAcess)
 		fmt.Printf("%s - Sair\n", optExit)
 		fmt.Print("Opção: ")
 
@@ -72,6 +77,10 @@ func main() {
 			consultarAcesso(entrada)
 		case optProdAcess:
 			consultarProdutoDoAcesso(entrada)
+		case optBuscaDiretaProd:
+			consultarProdutoDireto(entrada)
+		case optBuscaDiretaAcess:
+			consultarAcessoDireto(entrada)
 		case optExit:
 			return
 		default:
@@ -140,9 +149,11 @@ func consultarAcesso(entrada *bufio.Scanner) {
 	}
 
 	var acesso core.AcessoRecord
+	inicio := time.Now()
 	encontrado, mensagem := core.BuscarAcessoPorID(eventID, &acesso)
+	duracao := time.Since(inicio)
 	if !encontrado {
-		fmt.Printf("Falha na consulta: %s\n", mensagem)
+		fmt.Printf("Falha na consulta: %s\nTempo da pesquisa indexada: %s\n", mensagem, duracao)
 		return
 	}
 
@@ -154,6 +165,7 @@ func consultarAcesso(entrada *bufio.Scanner) {
 		strings.Trim(string(acesso.EventType[:]), textPad),
 		strings.Trim(string(acesso.EventTime[:]), textPad),
 	)
+	fmt.Printf("Tempo da pesquisa indexada: %s\n", duracao)
 }
 
 func consultarProdutoDoAcesso(entrada *bufio.Scanner) {
@@ -194,37 +206,105 @@ func consultarProduto(entrada *bufio.Scanner) {
 		return
 	}
 
-	produto, encontrado, err := buscarProduto(productID)
+	produto, encontrado, err, duracao := buscarProduto(productID)
 	if err != nil {
-		fmt.Printf("Falha na consulta: %v\n", err)
+		fmt.Printf("Falha na consulta: %v\nTempo da pesquisa indexada: %s\n", err, duracao)
 		if errors.Is(err, os.ErrNotExist) {
 			fmt.Println("Confira se os arquivos .dat existem e gere os índices com: go run ./cmd/indices")
 		}
 		return
 	}
 	if !encontrado {
-		fmt.Printf("Produto com ID %d não encontrado.\n", productID)
+		fmt.Printf("Produto com ID %d não encontrado.\nTempo da pesquisa indexada: %s\n", productID, duracao)
 		return
 	}
 
-	fmt.Printf("\nProduto encontrado\nID: %d\nMarca: %s\nCategoria: %s\nPreço: %.2f\n",
+	fmt.Printf("\nProduto encontrado\nID: %d\nMarca: %s\nCategoria: %s\nPreço: %.2f\nTempo da pesquisa indexada: %s\n",
 		produto.ProductID,
 		strings.Trim(string(produto.Brand[:]), textPad),
 		strings.Trim(string(produto.CategoryCode[:]), textPad),
 		produto.Price,
+		duracao,
 	)
 }
 
-func buscarProduto(productID int64) (core.ProdutoRecord, bool, error) {
+func buscarProduto(productID int64) (core.ProdutoRecord, bool, error, time.Duration) {
 	var produto core.ProdutoRecord
+	inicio := time.Now()
 	encontrado, mensagem := core.BuscarProdutoPorID(productID, &produto)
+	duracao := time.Since(inicio)
 	if encontrado {
-		return produto, true, nil
+		return produto, true, nil, duracao
 	}
 	if strings.HasPrefix(mensagem, "[Erro]") {
-		return core.ProdutoRecord{}, false, errors.New(mensagem)
+		return core.ProdutoRecord{}, false, errors.New(mensagem), duracao
 	}
-	return produto, false, nil
+	return produto, false, nil, duracao
+}
+
+func consultarProdutoDireto(entrada *bufio.Scanner) {
+	id, ok := lerIDConsulta(entrada, "ID do produto: ")
+	if !ok {
+		return
+	}
+
+	var produto core.ProdutoRecord
+	inicio := time.Now()
+	encontrado, err := core.BuscarProdutoBinario(id, &produto)
+	duracao := time.Since(inicio)
+	if err != nil {
+		fmt.Printf("Falha na pesquisa direta: %v\nTempo da pesquisa direta: %s\n", err, duracao)
+		return
+	}
+	if !encontrado {
+		fmt.Printf("Produto com ID %d não encontrado.\nTempo da pesquisa direta: %s\n", id, duracao)
+		return
+	}
+	if produto.Excluido {
+		fmt.Printf("Produto com ID %d está excluído logicamente.\nTempo da pesquisa direta: %s\n", id, duracao)
+		return
+	}
+	fmt.Printf(
+		"\nProduto encontrado\nID: %d\nMarca: %s\nCategoria: %s\nPreço: %.2f\nTempo da pesquisa direta: %s\n",
+		produto.ProductID,
+		strings.Trim(string(produto.Brand[:]), textPad),
+		strings.Trim(string(produto.CategoryCode[:]), textPad),
+		produto.Price,
+		duracao,
+	)
+}
+
+func consultarAcessoDireto(entrada *bufio.Scanner) {
+	id, ok := lerIDConsulta(entrada, "ID do evento: ")
+	if !ok {
+		return
+	}
+
+	var acesso core.AcessoRecord
+	inicio := time.Now()
+	encontrado, err := core.BuscarAcessoBinario(id, &acesso)
+	duracao := time.Since(inicio)
+	if err != nil {
+		fmt.Printf("Falha na pesquisa direta: %v\nTempo da pesquisa direta: %s\n", err, duracao)
+		return
+	}
+	if !encontrado {
+		fmt.Printf("Acesso com ID %d não encontrado.\nTempo da pesquisa direta: %s\n", id, duracao)
+		return
+	}
+	if acesso.Excluido {
+		fmt.Printf("Acesso com ID %d está excluído logicamente.\nTempo da pesquisa direta: %s\n", id, duracao)
+		return
+	}
+	fmt.Printf(
+		"\nAcesso encontrado\nEvento: %d\nUsuário: %d\nProduto: %d\nTipo: %s\nData/hora: %s\nTempo da pesquisa direta: %s\n",
+		acesso.EventID,
+		acesso.UserID,
+		acesso.ProductID,
+		strings.Trim(string(acesso.EventType[:]), textPad),
+		strings.Trim(string(acesso.EventTime[:]), textPad),
+		duracao,
+	)
 }
 
 func abrirArquivos(produto, escrita bool) (*core.File, *core.File, error) {

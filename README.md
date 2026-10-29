@@ -29,8 +29,11 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 ├── core/
 │   ├── model.go            # Estruturas dos registros de dados e índices
 │   ├── storage.go          # Abertura, criação, leitura binária, tamanho e Seek
-│   ├── index.go            # Reservado para operações sobre índices
-│   └── queries.go          # Reservado para consultas
+│   ├── index.go            # Buscas indexadas e consultas de relacionamento
+│   ├── direct_search.go    # Buscas binárias diretas nos arquivos .dat
+│   ├── queries.go          # Inserção, remoção lógica e reativação
+│   ├── display.go          # Exibição parcial ou total dos registros
+│   └── rebuild.go          # Reconstrução de dados, índices e extensões
 ├── scripts/
 │   └── formatarDados.py    # Limpeza e conversão do CSV
 ├── .gitignore
@@ -47,8 +50,8 @@ csvs/
 dados/                     # Pasta criada pelo script Python
 ├── produtos.dat           # Gerado pelo script Python
 ├── acessos.dat            # Gerado pelo script Python
-├── indice_prod.idx        # Gerado pelo comando de índices
-└── indice_acess.idx        # Gerado pelo comando de índices
+├── indice_prod.idx        # Índice parcial de produtos
+└── indice_acess.idx        # Índice parcial de acessos
 ```
 
 ## Pré-requisitos
@@ -58,23 +61,11 @@ dados/                     # Pasta criada pelo script Python
 - O arquivo `2019-Oct.csv`, do dataset de comportamento de comércio eletrônico do Kaggle citado no script.
 - Espaço em disco para o CSV, os dois arquivos de dados e seus índices. O consumo de memória do processamento de produtos cresce com a quantidade de produtos distintos.
 
-Execute os comandos a seguir **na raiz do projeto**, pois os caminhos de entrada e saída são relativos ao diretório de execução.
-
 ## Preparação e execução
 
 ### 1. Disponibilizar o CSV
 
-Crie a pasta `csvs/` e coloque nela o arquivo com o nome `2019-Oct.csv`. No PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force csvs
-```
-
-No Linux ou macOS:
-
-```sh
-mkdir -p csvs
-```
+Coloque manualmente o arquivo `2019-Oct.csv` na pasta `csvs/`.
 
 O CSV deve estar em UTF-8, usar vírgula como separador e conter as seguintes colunas no cabeçalho, em qualquer ordem:
 
@@ -87,17 +78,9 @@ Colunas adicionais são ignoradas. Para usar outros caminhos, altere `CAMINHO_CS
 
 ### 2. Gerar os arquivos binários
 
-```sh
-python scripts/formatarDados.py
-```
-
-O script cria `dados/` automaticamente e percorre o CSV duas vezes: primeiro para gerar produtos e depois para gerar acessos. Os arquivos `.dat` de destino são sobrescritos. Ao final de cada etapa, exibe o tamanho do arquivo, a quantidade de registros e o resto da divisão pelo tamanho do registro.
+Execute o script `scripts/formatarDados.py`. Ele cria `dados/` automaticamente e percorre o CSV duas vezes: primeiro para gerar produtos e depois para gerar acessos. Os arquivos `.dat` de destino são sobrescritos. Ao final de cada etapa, exibe o tamanho do arquivo, a quantidade de registros e o resto da divisão pelo tamanho do registro.
 
 ### 3. Validar os dados
-
-```sh
-go run ./cmd/validador
-```
 
 O validador percorre os dois arquivos e verifica:
 
@@ -107,49 +90,26 @@ O validador percorre os dois arquivos e verifica:
 - Delimitador `\n` em todos os registros.
 - Quantidade de registros lidos compatível com o tamanho do arquivo e término em EOF.
 
-A leitura de acessos usa um buffer de 4 MiB. O comando informa o resultado de cada arquivo no terminal, mas não define um código de saída diferente de zero quando a validação falha. Ele não valida índices, referências entre acessos e produtos nem o conteúdo semântico dos campos.
+A leitura de acessos usa um buffer de 4 MiB. O programa informa o resultado de cada arquivo no terminal e indica quando alguma validação falha. Ele também verifica os offsets e as chaves dos índices em relação ao primeiro registro de cada bloco. A validação não verifica referências semânticas entre acessos e produtos.
 
 ### 4. Gerar os índices parciais
 
-```sh
-go run ./cmd/indices
-```
+O programa lê os arquivos `.dat` e cria os índices que ainda não existem. Ele informa o resultado de cada geração e indica quando ocorre uma falha.
 
-O comando lê os arquivos `.dat` e cria os índices que ainda não existem. Ele informa o resultado de cada geração e retorna código de saída diferente de zero quando ocorre uma falha.
+Após gerar novamente os dados, remova manualmente os índices antigos antes de gerar os novos. Índices existentes são ignorados, mesmo que estejam vazios ou desatualizados.
 
-**Após gerar novamente os dados, remova os índices antigos antes de executar esse comando.** Índices existentes são ignorados, mesmo que estejam vazios ou desatualizados. A geração sobrescreve corretamente um índice quando o arquivo é removido ou quando a função é reutilizada diretamente.
+### Aplicação principal
 
-No PowerShell:
+A aplicação principal oferece consultas de produtos, acessos e relacionamento, inserção, remoção e exibição dos registros. Os índices devem existir e corresponder aos arquivos de dados antes da utilização.
 
-```powershell
-Remove-Item -LiteralPath dados/indice_prod.idx, dados/indice_acess.idx -ErrorAction SilentlyContinue
-go run ./cmd/indices
-```
+As opções de pesquisa do menu são:
 
-No Linux ou macOS:
+- consulta de produto por índice parcial;
+- consulta de acesso por índice parcial;
+- pesquisa binária direta de produto no arquivo de dados;
+- pesquisa binária direta de acesso no arquivo de dados.
 
-```sh
-rm -f dados/indice_prod.idx dados/indice_acess.idx
-go run ./cmd/indices
-```
-
-### Aplicação principal e compilação
-
-```sh
-go run ./cmd/indices
-go run .
-```
-
-O primeiro comando cria os índices que ainda não existem. O segundo abre o menu da aplicação, que oferece consultas de produtos, acessos e relacionamento, inserção, remoção e exibição dos registros. Se os arquivos de dados forem gerados novamente, remova e regenere os índices antes de iniciar a aplicação.
-
-Para compilar os utilitários no Windows:
-
-```sh
-go build -o validador.exe ./cmd/validador
-go build -o indices.exe ./cmd/indices
-```
-
-No Linux ou macOS, use nomes de saída sem a extensão `.exe`. Execute os binários a partir da raiz para preservar os caminhos relativos dos dados.
+As quatro pesquisas exibem o tempo medido desde o início até o fim da operação de busca.
 
 ## Regras de preparação dos dados
 
@@ -250,15 +210,9 @@ Cada extensão é verificada após uma inserção. Quando ela atinge 11 registro
 
 Durante a reconstrução, os elos dos registros ficam em `-1`, pois as extensões deixam de existir.
 
-## Verificação e próximos passos
+## Verificação
 
-Para compilar e verificar os pacotes com o mecanismo de testes do Go:
-
-```sh
-go test ./...
-```
-
-Ainda não há arquivos de testes automatizados no repositório. A validação dos dados deve ser executada separadamente com `go run ./cmd/validador`.
+A validação dos arquivos gerados é feita pelo programa em `cmd/validador`. Ela verifica os arquivos de dados e a correspondência entre os índices e os primeiros registros de cada bloco.
 
 As consultas previstas são:
 
@@ -272,4 +226,10 @@ As três consultas previstas estão disponíveis no menu:
 - opção 8: tipo e data/hora do evento pelo ID;
 - opção 9: marca do produto associado ao evento e data/hora do evento.
 
-A opção 9 realiza duas consultas indexadas: primeiro no índice de acessos e depois no índice de produtos. Os testes automatizados e a validação final são etapas posteriores.
+A opção 9 realiza duas consultas indexadas: primeiro no índice de acessos e depois no índice de produtos.
+
+## Hipóteses
+
+- Produtos da mesma marca podem possuir preços diferentes.
+- O tipo do evento estará relacionado a ações como `view`, `cart` ou `purchase`.
+- O `ProductID` do acesso deve corresponder a um produto existente.
