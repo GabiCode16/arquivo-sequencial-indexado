@@ -14,7 +14,7 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 | Geração de índices parciais a cada 1.024 registros | Implementada em `cmd/indices` |
 | Consulta de produto por ID | Implementada em `core.BuscarProdutoPorID`, com busca binária no índice e leitura do bloco em `produtos.dat` |
 | Menu da aplicação | Implementado em `main.go` para consultar produto por ID e sair |
-| Busca de acesso, demais consultas e manutenção dos índices no pacote `core` | Pendentes |
+| Busca de acessos, inserção, remoção lógica e manutenção por reconstrução no pacote `core` | Implementadas |
 | Consultas de produto por ID | Implementada na aplicação principal |
 | Consultas de acesso e análises | Pendentes; `core/queries.go` contém apenas a declaração do pacote e um comentário |
 
@@ -231,6 +231,22 @@ Por exemplo, 1.025 registros geram duas entradas: uma para o registro de posiç�
 
 A consulta de produto localiza por busca binária a entrada de índice cuja chave seja a maior que não ultrapasse a chave procurada, posiciona `produtos.dat` com `Seek` e percorre até 1.024 registros do bloco. As entradas consultadas também são comparadas com seus registros de dados para detectar índices desatualizados ou inconsistentes.
 
+### Área de extensão e reconstrução
+
+Inserções que não encontram a chave no arquivo principal são gravadas na extensão do bloco correspondente. O campo `Elo` armazena o offset do próximo registro da cadeia dentro da extensão. A busca consulta o bloco principal e percorre essa cadeia quando necessário.
+
+Cada extensão é verificada após uma inserção. Quando ela atinge 11 registros, o arquivo de dados e o índice daquele tipo são reconstruídos integralmente:
+
+1. registros ativos do arquivo principal e das extensões são reunidos;
+2. os registros são reorganizados pela chave;
+3. registros com exclusão lógica são ignorados;
+4. um novo arquivo temporário de dados é gravado;
+5. um novo índice parcial é gravado no mesmo processo, a cada 1.024 registros;
+6. os arquivos temporários substituem os arquivos originais;
+7. as extensões são removidas.
+
+Durante a reconstrução, os elos dos registros ficam em `-1`, pois as extensões deixam de existir.
+
 ## Verificação e próximos passos
 
 Para compilar e verificar os pacotes com o mecanismo de testes do Go:
@@ -247,4 +263,4 @@ As consultas previstas são:
 - Obter a data/hora e o tipo de um evento pelo ID.
 - Obter a marca do produto associado a um evento e a data desse evento.
 
-As consultas de acesso e de relacionamento entre evento e produto ainda precisam de busca indexada, implementação no pacote `core` e integração à aplicação principal. A geração de índices também precisa de tratamento explícito dos erros de posicionamento e escrita, atualmente ignorados.
+As consultas de relacionamento entre evento e produto e os testes automatizados ainda precisam ser concluídos. A geração de índices do comando `cmd/indices` ainda precisa de tratamento explícito dos erros de posicionamento e escrita, atualmente ignorados.

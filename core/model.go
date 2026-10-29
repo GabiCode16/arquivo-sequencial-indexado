@@ -34,3 +34,10 @@ type AcessoIdx struct {
 	EventID int64
 	Offset  int64
 }
+
+// Localizacao identifica o arquivo e o offset de um registro encontrado.
+type Localizacao struct {
+	Offset     int64
+	Bloco      int64
+	EmExtensao bool
+}

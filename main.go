@@ -13,16 +13,18 @@ import (
 
 // Opções de navegação do menu e configurações de formatação do console.
 const (
-	optProd     = "1"
-	optInsProd  = "2"
-	optRemProd  = "3"
-	optInsAcess = "4"
-	optRemAcess = "5"
-	optExit     = "0"
-	idBase      = 10
-	idBits      = 64
-	floatBits   = 64
-	textPad     = " \x00"
+	optProd      = "1"
+	optInsProd   = "2"
+	optRemProd   = "3"
+	optInsAcess  = "4"
+	optRemAcess  = "5"
+	optListProd  = "6"
+	optListAcess = "7"
+	optExit      = "0"
+	idBase       = 10
+	idBits       = 64
+	floatBits    = 64
+	textPad      = " \x00"
 )
 
 func main() {
@@ -35,6 +37,8 @@ func main() {
 		fmt.Printf("%s - Remover produto\n", optRemProd)
 		fmt.Printf("%s - Inserir acesso\n", optInsAcess)
 		fmt.Printf("%s - Remover acesso\n", optRemAcess)
+		fmt.Printf("%s - Exibir produtos\n", optListProd)
+		fmt.Printf("%s - Exibir acessos\n", optListAcess)
 		fmt.Printf("%s - Sair\n", optExit)
 		fmt.Print("Opção: ")
 
@@ -56,12 +60,52 @@ func main() {
 			inserir(entrada, false)
 		case optRemAcess:
 			remover(entrada, false)
+		case optListProd:
+			exibir(entrada, true)
+		case optListAcess:
+			exibir(entrada, false)
 		case optExit:
 			return
 		default:
 			fmt.Println("Opção inválida.")
 		}
+
 	}
+}
+
+func exibir(entrada *bufio.Scanner, produto bool) {
+	limite, err := lerLimite(entrada)
+	if err != nil {
+		fmt.Printf("Não foi possível exibir os registros: %v\n", err)
+		return
+	}
+
+	var exibidos int64
+	if produto {
+		exibidos, err = core.ListarProdutos(os.Stdout, limite)
+	} else {
+		exibidos, err = core.ListarAcessos(os.Stdout, limite)
+	}
+	if err != nil {
+		fmt.Printf("Não foi possível exibir os registros: %v\n", err)
+		return
+	}
+	fmt.Printf("Total exibido: %d registro(s).\n", exibidos)
+}
+
+func lerLimite(entrada *bufio.Scanner) (int64, error) {
+	fmt.Print("Quantidade de registros (0 para todos): ")
+	if !entrada.Scan() {
+		if err := entrada.Err(); err != nil {
+			return 0, err
+		}
+		return 0, io.EOF
+	}
+	limite, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), idBase, idBits)
+	if err != nil || limite < 0 {
+		return 0, fmt.Errorf("informe uma quantidade inteira não negativa")
+	}
+	return limite, nil
 }
 
 func consultarProduto(entrada *bufio.Scanner) {
@@ -101,30 +145,31 @@ func consultarProduto(entrada *bufio.Scanner) {
 }
 
 func buscarProduto(productID int64) (core.ProdutoRecord, bool, error) {
-	arquivoProdutos, arquivoIndice, err := abrirArquivos(true, false)
-	if err != nil {
-		return core.ProdutoRecord{}, false, err
+	var produto core.ProdutoRecord
+	encontrado, mensagem := core.BuscarProdutoPorID(productID, &produto)
+	if encontrado {
+		return produto, true, nil
 	}
-	defer arquivoProdutos.Close()
-	defer arquivoIndice.Close()
-
-	return core.BuscarProdutoPorID(arquivoProdutos, arquivoIndice, productID)
+	if strings.HasPrefix(mensagem, "[Erro]") {
+		return core.ProdutoRecord{}, false, errors.New(mensagem)
+	}
+	return produto, false, nil
 }
 
-func abrirArquivos(produto, escrita bool) (*os.File, *os.File, error) {
+func abrirArquivos(produto, escrita bool) (*core.File, *core.File, error) {
 	path, idx := core.ProdPath, core.ProdIdxPath
 	if !produto {
 		path, idx = core.AcessPath, core.AcessIdxPath
 	}
-	modo := os.O_RDONLY
+	modo := core.ModR
 	if escrita {
-		modo = os.O_RDWR
+		modo = core.ModRW
 	}
-	dados, err := os.OpenFile(path, modo, core.Perm)
+	dados, err := core.AbrirArquivo(path, modo, false)
 	if err != nil {
 		return nil, nil, fmt.Errorf("abrir %s: %w", path, err)
 	}
-	indice, err := os.OpenFile(idx, modo, core.Perm)
+	indice, err := core.AbrirArquivo(idx, modo, false)
 	if err != nil {
 		dados.Close()
 		return nil, nil, fmt.Errorf("abrir %s: %w", idx, err)
@@ -153,13 +198,17 @@ func inserir(entrada *bufio.Scanner, produto bool) {
 	defer dados.Close()
 	defer indice.Close()
 	if produto {
-		err = core.InserirProduto(dados, indice, p)
+		mensagem := core.InserirProduto(dados, indice, p)
+		if strings.HasPrefix(mensagem, "[Erro]") {
+			fmt.Printf("Não foi possível inserir: %s\n", mensagem)
+			return
+		}
 	} else {
-		err = core.InserirAcesso(dados, indice, a)
-	}
-	if err != nil {
-		fmt.Printf("Não foi possível inserir: %v\n", err)
-		return
+		mensagem := core.InserirAcesso(dados, indice, a)
+		if strings.HasPrefix(mensagem, "[Erro]") {
+			fmt.Printf("Não foi possível inserir: %s\n", mensagem)
+			return
+		}
 	}
 	fmt.Println("Registro inserido.")
 }
@@ -182,15 +231,14 @@ func remover(entrada *bufio.Scanner, produto bool) {
 	defer dados.Close()
 	defer indice.Close()
 	var removido bool
+	var mensagem string
 	if produto {
-		removido, err = core.RemoverProduto(dados, indice, id)
+		removido, mensagem = core.RemoverProduto(dados, id)
 	} else {
-		removido, err = core.RemoverAcesso(dados, indice, id)
+		removido, mensagem = core.RemoverAcesso(dados, id)
 	}
-	if err != nil {
-		fmt.Printf("Não foi possível remover: %v\n", err)
-	} else if !removido {
-		fmt.Println("Registro não encontrado ou já excluído.")
+	if !removido {
+		fmt.Printf("Não foi possível remover: %s\n", mensagem)
 	} else {
 		fmt.Println("Registro excluído logicamente.")
 	}
