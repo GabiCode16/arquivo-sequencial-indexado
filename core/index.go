@@ -32,6 +32,19 @@ func BuscarAcessoPorID(id int64, a *AcessoRecord) (bool, string) {
 	return true, "[Sucesso] Acesso encontrado"
 }
 
+// BuscarProdutoDoAcesso localiza um acesso e, em seguida, o produto associado.
+func BuscarProdutoDoAcesso(eventID int64, acesso *AcessoRecord, produto *ProdutoRecord) (bool, string) {
+	if encontrado, mensagem := BuscarAcessoPorID(eventID, acesso); !encontrado {
+		return false, mensagem
+	}
+
+	if encontrado, mensagem := BuscarProdutoPorID(acesso.ProductID, produto); !encontrado {
+		return false, mensagem
+	}
+
+	return true, "[Sucesso] Produto associado ao acesso encontrado"
+}
+
 // ---------------------------------------------------------
 // 2. FUNÇÕES DE LOCALIZAÇÃO (PESQUISA BINÁRIA + BLOCO + EXTENSÃO)
 // ---------------------------------------------------------

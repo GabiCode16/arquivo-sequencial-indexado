@@ -4,6 +4,7 @@ import (
 	"asi/core"
 	"bufio"
 	"fmt"
+	"os"
 )
 
 func validateProductFile() (bool, string) {
@@ -22,6 +23,9 @@ func validateProductFile() (bool, string) {
 	}
 
 	qtdProdutos := tamanhoTotal / core.ProdSize
+	if qtdProdutos == 0 {
+		return false, "Arquivo de produtos vazio"
+	}
 	lidos := 0
 
 	product, e := core.LerLinhaProduto(file.Reader())
@@ -92,6 +96,9 @@ func validateAccessFile() (bool, string) {
 	}
 
 	qtdAcessos := tamanhoTotal / core.AcessSize
+	if qtdAcessos == 0 {
+		return false, "Arquivo de acessos vazio"
+	}
 	lidos := 0
 
 	access, e := core.LerLinhaAcesso(reader)
@@ -160,7 +167,15 @@ func validateProductIndexFile() (bool, string) {
 	}
 
 	qtdIndices := tamanhoTotal / core.IdxSize
+	if qtdIndices == 0 {
+		return false, "Arquivo de índices de produtos vazio"
+	}
 	lidos := 0
+	dados, err := core.AbrirArquivo(core.ProdPath, core.ModR, false)
+	if err != nil {
+		return false, "Erro ao abrir os dados para validar o índice de produtos"
+	}
+	defer dados.Close()
 
 	productIdx, e := core.LerLinhaProdutoIdx(file.Reader())
 
@@ -169,6 +184,16 @@ func validateProductIndexFile() (bool, string) {
 	}
 
 	id := productIdx.ProductID
+	if productIdx.Offset != 0 {
+		return false, "Primeiro índice de produtos deve apontar para o offset zero"
+	}
+	if _, err := core.SeekStart(dados, productIdx.Offset); err != nil {
+		return false, "Erro ao posicionar o primeiro índice de produtos"
+	}
+	primeiroProduto, err := core.LerLinhaProduto(dados.Reader())
+	if err != nil || primeiroProduto.ProductID != productIdx.ProductID {
+		return false, "Primeiro índice de produtos não corresponde aos dados"
+	}
 	lidos++
 
 	for {
@@ -177,6 +202,17 @@ func validateProductIndexFile() (bool, string) {
 
 		if e != nil {
 			break
+		}
+		esperado := int64(lidos) * core.BlockSize * core.ProdSize
+		if productIdx.Offset != esperado {
+			return false, "Offset de índice de produtos inválido"
+		}
+		if _, err := core.SeekStart(dados, productIdx.Offset); err != nil {
+			return false, "Erro ao posicionar índice de produtos"
+		}
+		registro, err := core.LerLinhaProduto(dados.Reader())
+		if err != nil || registro.ProductID != productIdx.ProductID {
+			return false, "Índice de produtos não corresponde aos dados"
 		}
 
 		if newId <= id {
@@ -221,7 +257,15 @@ func validateAccessIndexFile() (bool, string) {
 	}
 
 	qtdIndices := tamanhoTotal / core.IdxSize
+	if qtdIndices == 0 {
+		return false, "Arquivo de índices de acessos vazio"
+	}
 	lidos := 0
+	dados, err := core.AbrirArquivo(core.AcessPath, core.ModR, false)
+	if err != nil {
+		return false, "Erro ao abrir os dados para validar o índice de acessos"
+	}
+	defer dados.Close()
 
 	accessIdx, e := core.LerLinhaAcessoIdx(file.Reader())
 
@@ -230,6 +274,16 @@ func validateAccessIndexFile() (bool, string) {
 	}
 
 	id := accessIdx.EventID
+	if accessIdx.Offset != 0 {
+		return false, "Primeiro índice de acessos deve apontar para o offset zero"
+	}
+	if _, err := core.SeekStart(dados, accessIdx.Offset); err != nil {
+		return false, "Erro ao posicionar o primeiro índice de acessos"
+	}
+	primeiroAcesso, err := core.LerLinhaAcesso(dados.Reader())
+	if err != nil || primeiroAcesso.EventID != accessIdx.EventID {
+		return false, "Primeiro índice de acessos não corresponde aos dados"
+	}
 	lidos++
 
 	for {
@@ -238,6 +292,17 @@ func validateAccessIndexFile() (bool, string) {
 
 		if e != nil {
 			break
+		}
+		esperado := int64(lidos) * core.BlockSize * core.AcessSize
+		if accessIdx.Offset != esperado {
+			return false, "Offset de índice de acessos inválido"
+		}
+		if _, err := core.SeekStart(dados, accessIdx.Offset); err != nil {
+			return false, "Erro ao posicionar índice de acessos"
+		}
+		registro, err := core.LerLinhaAcesso(dados.Reader())
+		if err != nil || registro.EventID != accessIdx.EventID {
+			return false, "Índice de acessos não corresponde aos dados"
 		}
 
 		if newId <= id {
@@ -300,5 +365,8 @@ func main() {
 		fmt.Println("Arquivo de índices de acessos: Integro")
 	} else {
 		fmt.Printf("Arquivo de índices de acessos: Corrompido\n%s\n", accessIdxMsg)
+	}
+	if !productValid || !accessValid || !productIdxValid || !accessIdxValid {
+		os.Exit(1)
 	}
 }

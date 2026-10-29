@@ -12,11 +12,10 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 | Modelos binários, leitura e posicionamento | Implementados em `core/model.go` e `core/storage.go` |
 | Validação dos arquivos `.dat` | Implementada em `cmd/validador` |
 | Geração de índices parciais a cada 1.024 registros | Implementada em `cmd/indices` |
-| Consulta de produto por ID | Implementada em `core.BuscarProdutoPorID`, com busca binária no índice e leitura do bloco em `produtos.dat` |
-| Menu da aplicação | Implementado em `main.go` para consultar produto por ID e sair |
+| Consultas por ID | Implementadas com busca pelo índice parcial e com busca binária direta nos arquivos `.dat` |
+| Menu da aplicação | Implementado em `main.go` com as três consultas, inserção, remoção e exibição |
 | Busca de acessos, inserção, remoção lógica e manutenção por reconstrução no pacote `core` | Implementadas |
-| Consultas de produto por ID | Implementada na aplicação principal |
-| Consultas de acesso e análises | Pendentes; `core/queries.go` contém apenas a declaração do pacote e um comentário |
+| Consultas de produto, acesso e relacionamento | Implementadas na aplicação principal e em `core` |
 
 ## Estrutura do projeto
 
@@ -102,7 +101,7 @@ go run ./cmd/validador
 
 O validador percorre os dois arquivos e verifica:
 
-- Tamanho total múltiplo de 97 bytes para produtos e de 61 bytes para acessos.
+- Tamanho total múltiplo de 106 bytes para produtos e de 70 bytes para acessos.
 - Presença de pelo menos um registro em cada arquivo.
 - IDs em ordem estritamente crescente, sem duplicatas.
 - Delimitador `\n` em todos os registros.
@@ -116,9 +115,9 @@ A leitura de acessos usa um buffer de 4 MiB. O comando informa o resultado de ca
 go run ./cmd/indices
 ```
 
-O comando lê os arquivos `.dat` e cria os índices que ainda não existem. Não apresenta mensagens de sucesso ou falha e não propaga o resultado das funções geradoras como código de saída; confira a existência e o tamanho dos arquivos de saída.
+O comando lê os arquivos `.dat` e cria os índices que ainda não existem. Ele informa o resultado de cada geração e retorna código de saída diferente de zero quando ocorre uma falha.
 
-**Após gerar novamente os dados, remova os índices antigos antes de executar esse comando.** Índices existentes são ignorados, mesmo que estejam vazios ou desatualizados.
+**Após gerar novamente os dados, remova os índices antigos antes de executar esse comando.** Índices existentes são ignorados, mesmo que estejam vazios ou desatualizados. A geração sobrescreve corretamente um índice quando o arquivo é removido ou quando a função é reutilizada diretamente.
 
 No PowerShell:
 
@@ -141,7 +140,7 @@ go run ./cmd/indices
 go run .
 ```
 
-O primeiro comando cria os índices que ainda não existem. O segundo abre o menu da aplicação, onde já é possível consultar um produto pelo ID e ver sua marca, categoria e preço. Se os arquivos de dados forem gerados novamente, remova e regenere os índices antes de iniciar a aplicação.
+O primeiro comando cria os índices que ainda não existem. O segundo abre o menu da aplicação, que oferece consultas de produtos, acessos e relacionamento, inserção, remoção e exibição dos registros. Se os arquivos de dados forem gerados novamente, remova e regenere os índices antes de iniciar a aplicação.
 
 Para compilar os utilitários no Windows:
 
@@ -180,9 +179,9 @@ Todos os arquivos usam **little-endian**, sem cabeçalho. Os inteiros são `int6
 
 Os tamanhos correspondem à serialização com `struct.pack` em Python e `encoding/binary` em Go. O tamanho de uma struct em memória em Go pode incluir alinhamento e não deve ser usado para calcular posições em disco.
 
-### `produtos.dat`: 97 bytes por registro
+### `produtos.dat`: 106 bytes por registro
 
-Formato Python: `<q32s48sd1s`. Estrutura Go: `core.ProdutoRecord`.
+Formato Python: `<q32s48sdq?1s`. Estrutura Go: `core.ProdutoRecord`.
 
 | Campo | Tipo Go | Offset | Bytes |
 | --- | --- | ---: | ---: |
@@ -190,11 +189,13 @@ Formato Python: `<q32s48sd1s`. Estrutura Go: `core.ProdutoRecord`.
 | `Brand` | `[32]byte` | 8 | 32 |
 | `CategoryCode` | `[48]byte` | 40 | 48 |
 | `Price` | `float64` | 88 | 8 |
-| `Delimiter` | `byte` (`0x0A`) | 96 | 1 |
+| `Elo` | `int64` | 96 | 8 |
+| `Excluido` | `bool` | 104 | 1 |
+| `Delimiter` | `byte` (`0x0A`) | 105 | 1 |
 
-### `acessos.dat`: 61 bytes por registro
+### `acessos.dat`: 70 bytes por registro
 
-Formato Python: `<qq16sq20s1s`. Estrutura Go: `core.AcessoRecord`.
+Formato Python: `<qq16sq20sq?1s`. Estrutura Go: `core.AcessoRecord`.
 
 | Campo | Tipo Go | Offset | Bytes |
 | --- | --- | ---: | ---: |
@@ -203,7 +204,9 @@ Formato Python: `<qq16sq20s1s`. Estrutura Go: `core.AcessoRecord`.
 | `EventType` | `[16]byte` | 16 | 16 |
 | `ProductID` | `int64` | 32 | 8 |
 | `EventTime` | `[20]byte` | 40 | 20 |
-| `Delimiter` | `byte` (`0x0A`) | 60 | 1 |
+| `Elo` | `int64` | 60 | 8 |
+| `Excluido` | `bool` | 68 | 1 |
+| `Delimiter` | `byte` (`0x0A`) | 69 | 1 |
 
 Tipos de evento esperados incluem `view`, `cart` e `purchase`, mas o script não restringe os valores a essa lista. Uma data como `2019-10-01 00:00:00` ocupa 19 caracteres e recebe um espaço para completar o campo.
 
@@ -221,8 +224,8 @@ Os índices não possuem delimitador. Cada entrada referencia o primeiro registr
 Para a entrada de índice `k`, contando a partir de zero:
 
 ```text
-offset em produtos.dat = k × 1024 × 97
-offset em acessos.dat  = k × 1024 × 61
+offset em produtos.dat = k × 1024 × 106
+offset em acessos.dat  = k × 1024 × 70
 quantidade de entradas para N registros = teto(N / 1024)
 tamanho do índice = quantidade de entradas × 16 bytes
 ```
@@ -263,4 +266,10 @@ As consultas previstas são:
 - Obter a data/hora e o tipo de um evento pelo ID.
 - Obter a marca do produto associado a um evento e a data desse evento.
 
-As consultas de relacionamento entre evento e produto e os testes automatizados ainda precisam ser concluídos. A geração de índices do comando `cmd/indices` ainda precisa de tratamento explícito dos erros de posicionamento e escrita, atualmente ignorados.
+As três consultas previstas estão disponíveis no menu:
+
+- opção 1: marca, categoria e preço do produto pelo ID;
+- opção 8: tipo e data/hora do evento pelo ID;
+- opção 9: marca do produto associado ao evento e data/hora do evento.
+
+A opção 9 realiza duas consultas indexadas: primeiro no índice de acessos e depois no índice de produtos. Os testes automatizados e a validação final são etapas posteriores.

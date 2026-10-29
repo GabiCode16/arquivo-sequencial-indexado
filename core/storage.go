@@ -12,10 +12,11 @@ type File os.File
 type Reader io.Reader
 
 var (
-	ModR  ModoArquivo = ModoArquivo(os.O_RDONLY)
-	ModW  ModoArquivo = ModoArquivo(os.O_WRONLY)
-	ModRW ModoArquivo = ModoArquivo(os.O_RDWR)
-	EOF   error       = io.EOF
+	ModR     ModoArquivo = ModoArquivo(os.O_RDONLY)
+	ModW     ModoArquivo = ModoArquivo(os.O_WRONLY)
+	ModRW    ModoArquivo = ModoArquivo(os.O_RDWR)
+	ModTrunc ModoArquivo = ModoArquivo(os.O_TRUNC)
+	EOF      error       = io.EOF
 )
 
 // AbrirArquivo abre um arquivo no caminho especificado.

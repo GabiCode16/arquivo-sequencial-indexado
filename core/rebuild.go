@@ -10,8 +10,6 @@ import (
 type registroReconstrucao struct {
 	chave        int64
 	ativo        bool
-	produto      ProdutoRecord
-	acesso       AcessoRecord
 	gravarDados  func(*File) error
 	gravarIndice func(*File, int64) error
 }
@@ -40,9 +38,8 @@ func lerProdutoReconstrucao(arquivo *File) (registroReconstrucao, error) {
 		return registroReconstrucao{}, err
 	}
 	return registroReconstrucao{
-		chave:   registro.ProductID,
-		ativo:   !registro.Excluido,
-		produto: registro,
+		chave: registro.ProductID,
+		ativo: !registro.Excluido,
 		gravarDados: func(destino *File) error {
 			registro.Elo = -1
 			return GravarProduto(destino, registro)
@@ -62,9 +59,8 @@ func lerAcessoReconstrucao(arquivo *File) (registroReconstrucao, error) {
 		return registroReconstrucao{}, err
 	}
 	return registroReconstrucao{
-		chave:  registro.EventID,
-		ativo:  !registro.Excluido,
-		acesso: registro,
+		chave: registro.EventID,
+		ativo: !registro.Excluido,
 		gravarDados: func(destino *File) error {
 			registro.Elo = -1
 			return GravarAcesso(destino, registro)
@@ -214,12 +210,9 @@ func reconstruirArquivo(
 		cleanup()
 		return fmt.Errorf("fechar índice temporário: %w", err)
 	}
-	if err := substituirArquivo(tempDadosPath, dadosPath); err != nil {
+	if err := substituirArquivos(tempDadosPath, dadosPath, tempIndicePath, indicePath); err != nil {
 		cleanup()
-		return fmt.Errorf("substituir dados: %w", err)
-	}
-	if err := substituirArquivo(tempIndicePath, indicePath); err != nil {
-		return fmt.Errorf("substituir índice: %w", err)
+		return fmt.Errorf("substituir dados e índice: %w", err)
 	}
 	for _, caminho := range extensoes {
 		if err := os.Remove(caminho); err != nil {
@@ -237,15 +230,40 @@ func abrirTemporario(caminho string) (*File, error) {
 	return (*File)(arquivo), nil
 }
 
-func substituirArquivo(origem, destino string) error {
-	backup := destino + ".bak"
-	_ = os.Remove(backup)
-	if err := os.Rename(destino, backup); err != nil {
-		return err
+func substituirArquivos(dadosOrigem, dadosDestino, indiceOrigem, indiceDestino string) error {
+	dadosBackup := dadosDestino + ".bak"
+	indiceBackup := indiceDestino + ".bak"
+	_ = os.Remove(dadosBackup)
+	_ = os.Remove(indiceBackup)
+
+	if err := os.Rename(dadosDestino, dadosBackup); err != nil {
+		return fmt.Errorf("guardar dados antigos: %w", err)
 	}
-	if err := os.Rename(origem, destino); err != nil {
-		_ = os.Rename(backup, destino)
-		return err
+	if err := os.Rename(indiceDestino, indiceBackup); err != nil {
+		_ = os.Rename(dadosBackup, dadosDestino)
+		return fmt.Errorf("guardar índice antigo: %w", err)
 	}
-	return os.Remove(backup)
+
+	restaurar := func() {
+		_ = os.Remove(dadosDestino)
+		_ = os.Remove(indiceDestino)
+		_ = os.Rename(dadosBackup, dadosDestino)
+		_ = os.Rename(indiceBackup, indiceDestino)
+	}
+
+	if err := os.Rename(dadosOrigem, dadosDestino); err != nil {
+		restaurar()
+		return fmt.Errorf("instalar dados novos: %w", err)
+	}
+	if err := os.Rename(indiceOrigem, indiceDestino); err != nil {
+		restaurar()
+		return fmt.Errorf("instalar índice novo: %w", err)
+	}
+	if err := os.Remove(dadosBackup); err != nil {
+		return fmt.Errorf("remover backup dos dados: %w", err)
+	}
+	if err := os.Remove(indiceBackup); err != nil {
+		return fmt.Errorf("remover backup do índice: %w", err)
+	}
+	return nil
 }

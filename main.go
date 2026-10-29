@@ -20,6 +20,8 @@ const (
 	optRemAcess  = "5"
 	optListProd  = "6"
 	optListAcess = "7"
+	optAcess     = "8"
+	optProdAcess = "9"
 	optExit      = "0"
 	idBase       = 10
 	idBits       = 64
@@ -39,6 +41,8 @@ func main() {
 		fmt.Printf("%s - Remover acesso\n", optRemAcess)
 		fmt.Printf("%s - Exibir produtos\n", optListProd)
 		fmt.Printf("%s - Exibir acessos\n", optListAcess)
+		fmt.Printf("%s - Consultar acesso por ID\n", optAcess)
+		fmt.Printf("%s - Consultar produto associado a acesso\n", optProdAcess)
 		fmt.Printf("%s - Sair\n", optExit)
 		fmt.Print("Opção: ")
 
@@ -64,6 +68,10 @@ func main() {
 			exibir(entrada, true)
 		case optListAcess:
 			exibir(entrada, false)
+		case optAcess:
+			consultarAcesso(entrada)
+		case optProdAcess:
+			consultarProdutoDoAcesso(entrada)
 		case optExit:
 			return
 		default:
@@ -106,6 +114,69 @@ func lerLimite(entrada *bufio.Scanner) (int64, error) {
 		return 0, fmt.Errorf("informe uma quantidade inteira não negativa")
 	}
 	return limite, nil
+}
+
+func lerIDConsulta(entrada *bufio.Scanner, rotulo string) (int64, bool) {
+	fmt.Print(rotulo)
+	if !entrada.Scan() {
+		if err := entrada.Err(); err != nil {
+			fmt.Fprintf(os.Stderr, "Erro ao ler o ID: %v\n", err)
+		}
+		return 0, false
+	}
+
+	id, err := strconv.ParseInt(strings.TrimSpace(entrada.Text()), idBase, idBits)
+	if err != nil {
+		fmt.Printf("ID inválido. Informe um número inteiro de %d bits.\n", idBits)
+		return 0, false
+	}
+	return id, true
+}
+
+func consultarAcesso(entrada *bufio.Scanner) {
+	eventID, ok := lerIDConsulta(entrada, "ID do evento: ")
+	if !ok {
+		return
+	}
+
+	var acesso core.AcessoRecord
+	encontrado, mensagem := core.BuscarAcessoPorID(eventID, &acesso)
+	if !encontrado {
+		fmt.Printf("Falha na consulta: %s\n", mensagem)
+		return
+	}
+
+	fmt.Printf(
+		"\nAcesso encontrado\nEvento: %d\nUsuário: %d\nProduto: %d\nTipo: %s\nData/hora: %s\n",
+		acesso.EventID,
+		acesso.UserID,
+		acesso.ProductID,
+		strings.Trim(string(acesso.EventType[:]), textPad),
+		strings.Trim(string(acesso.EventTime[:]), textPad),
+	)
+}
+
+func consultarProdutoDoAcesso(entrada *bufio.Scanner) {
+	eventID, ok := lerIDConsulta(entrada, "ID do evento: ")
+	if !ok {
+		return
+	}
+
+	var acesso core.AcessoRecord
+	var produto core.ProdutoRecord
+	encontrado, mensagem := core.BuscarProdutoDoAcesso(eventID, &acesso, &produto)
+	if !encontrado {
+		fmt.Printf("Falha na consulta: %s\n", mensagem)
+		return
+	}
+
+	fmt.Printf(
+		"\nProduto associado ao acesso\nEvento: %d\nData/hora: %s\nProduto: %d\nMarca: %s\n",
+		acesso.EventID,
+		strings.Trim(string(acesso.EventTime[:]), textPad),
+		produto.ProductID,
+		strings.Trim(string(produto.Brand[:]), textPad),
+	)
 }
 
 func consultarProduto(entrada *bufio.Scanner) {
