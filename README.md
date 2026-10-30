@@ -42,17 +42,19 @@ O pré-processamento é feito em Python. As rotinas de leitura, validação e ge
 └── README.md
 ```
 
-As pastas `csvs/` e `dados/` são locais e estão no `.gitignore`. O CSV e os arquivos gerados não acompanham o repositório:
+O CSV original permanece local e não é versionado. Para demonstrar os resultados da preparação, foram enviados ao Git amostras dos arquivos de dados e dos índices gerados:
 
 ```text
 csvs/
 └── 2019-Oct.csv            # Entrada, fornecida pelo usuário
-dados/                     # Pasta criada pelo script Python
-├── produtos.dat           # Gerado pelo script Python
-├── acessos.dat            # Gerado pelo script Python
+dados/                     # Pasta com os arquivos gerados e suas amostras versionadas
+├── produtos.dat           # Arquivo de dados de produtos
+├── acessos.dat            # Arquivo de dados de acessos
 ├── indice_prod.idx        # Índice parcial de produtos
 └── indice_acess.idx        # Índice parcial de acessos
 ```
+
+Os arquivos enviados ao Git são amostras representativas, utilizadas para documentar e demonstrar a estrutura dos arquivos binários e dos índices. O processamento completo pode ser reproduzido a partir do CSV original e do script de preparação.
 
 ## Pré-requisitos
 
